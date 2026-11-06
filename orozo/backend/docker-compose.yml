@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: orzo-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: orzo_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Bern@2026
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema_and_seed.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orzo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orzo-django-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-orzo-dev-secret-key-change-in-production
+      - ALLOWED_HOSTS=*
+      - DB_NAME=orzo_db
+      - DB_USER=postgres
+      - DB_PASSWORD=Bern@2026
+      - DB_HOST=db
+      - DB_PORT=5432
+      - LIVEKIT_URL=wss://orozo-translation-8nvelq7r.livekit.cloud
+      - LIVEKIT_API_KEY=API7DMjTx8g4u3b
+      - LIVEKIT_API_SECRET=nKCl9pHbPDW5ek50BJRQX55NWTcA4WV5eDegI5RAOsUA
+      - LIVEKIT_TOKEN_TTL_SECONDS=1800
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

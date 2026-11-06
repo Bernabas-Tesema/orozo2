@@ -1,0 +1,9 @@
+{
+  "name": "ORZO Triage Terminal & Ethiopian Interpretation Platform",
+  "description": "Institutional-grade triage terminal and dispatch client for Ethiopian language interpretation across healthcare, legal courtrooms, immigration, and civil public services.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
