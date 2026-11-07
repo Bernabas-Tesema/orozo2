@@ -1,0 +1,250 @@
+:root {
+  --orzo-navy: #0e2a3a;
+  --orzo-blue: #155b86;
+  --orzo-teal: #168b91;
+}
+
+.main-sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 250px;
+  z-index: 1038;
+  overflow-y: auto;
+  background: #0e2a3a !important;
+}
+
+.main-sidebar .nav-sidebar .nav-link,
+.main-sidebar .brand-text,
+.user-panel,
+.user-panel a {
+  color: #e7f2f6 !important;
+}
+
+.main-sidebar .nav-sidebar .nav-link .nav-icon,
+.main-sidebar .nav-header {
+  color: #8fd0d4 !important;
+}
+
+.sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active {
+  background: linear-gradient(90deg, #155b86, #168b91) !important;
+  border-radius: 10px;
+  margin: 0 8px;
+  color: #fff !important;
+}
+
+body.jazzmin-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #0e2a3a, #155b86 58%, #168b91) !important;
+}
+
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 57px;
+  width: 250px;
+}
+
+.main-sidebar .brand-image {
+  width: 34px !important;
+  height: 34px !important;
+  max-height: 34px !important;
+  object-fit: cover;
+  margin: 0 0 0 8px !important;
+}
+
+.login-logo img {
+  width: 92px !important;
+  height: 92px !important;
+  max-height: 92px !important;
+  object-fit: cover;
+  margin: 0 auto 8px !important;
+  display: block;
+  border-radius: 50%;
+}
+
+.content-wrapper,
+.main-footer {
+  margin-left: 250px;
+}
+
+.main-header.navbar {
+  margin-left: 250px;
+}
+
+.login-box,
+.register-box {
+  width: 400px;
+  margin: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(14, 42, 58, 0.28);
+  background: #fff;
+}
+
+.login-logo img,
+.login-box .brand-image {
+  border-radius: 18px;
+}
+
+.main-header.navbar,
+.brand-link {
+  background: linear-gradient(90deg, var(--orzo-navy), var(--orzo-blue) 55%, var(--orzo-teal)) !important;
+}
+
+.sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active {
+  background: linear-gradient(90deg, #155b86, #168b91) !important;
+  border-radius: 10px;
+  margin: 0 8px;
+}
+
+.card {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(14, 42, 58, 0.06);
+}
+
+.btn-primary {
+  background: #155b86;
+  border-color: #155b86;
+  border-radius: 10px;
+}
+
+.btn-primary:hover {
+  background: #0e2a3a;
+  border-color: #0e2a3a;
+}
+
+.content-header h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.orzo-admin-hero {
+  background: #0f172a;
+  color: #fff;
+  border-radius: 18px;
+  padding: 28px;
+  margin-bottom: 18px;
+  border: 1px solid #1e293b;
+}
+
+.orzo-admin-hero-compact {
+  padding: 22px 24px;
+}
+
+.orzo-admin-kicker {
+  color: #d8b4fe;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orzo-admin-hero h1 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.orzo-admin-hero p {
+  color: #cbd5e1;
+  max-width: 720px;
+  margin-bottom: 0;
+}
+
+.orzo-admin-hero-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.orzo-admin-pill {
+  background: rgba(88, 28, 135, 0.55);
+  border: 1px solid #6b21a8;
+  color: #e9d5ff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.orzo-admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #1e293b;
+}
+
+.orzo-admin-tabs a {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.orzo-admin-tabs a:hover {
+  background: #7e22ce;
+  color: #fff;
+  text-decoration: none;
+}
+
+.orzo-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.orzo-admin-card {
+  display: block;
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(14, 42, 58, 0.06);
+  color: #0f172a;
+}
+
+.orzo-admin-card:hover {
+  text-decoration: none;
+  color: #0f172a;
+  outline: 2px solid #7e22ce;
+}
+
+.orzo-admin-card h2 {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.orzo-admin-card p {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0;
+}
+
+.orzo-config-card label {
+  display: block;
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #334155;
+}
+
+.orzo-check {
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}

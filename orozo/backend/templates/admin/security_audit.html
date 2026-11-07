@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+
+{% block content_title %}Security audit logs{% endblock %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'admin:index' %}">Home</a></li>
+    <li class="breadcrumb-item">Security audit logs</li>
+</ol>
+{% endblock %}
+
+{% block content %}
+<div class="col-12">
+    <section class="orzo-admin-hero orzo-admin-hero-compact">
+        <div class="orzo-admin-kicker">System Governance & Registry</div>
+        <h1>Security audit logs</h1>
+        <p>The same operational and security trail shown in the web platform admin.</p>
+    </section>
+    <form method="get" class="mb-3">
+        <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Search action, actor, or resource">
+    </form>
+    <div class="card">
+        <div class="card-body table-responsive p-0">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Action</th>
+                        <th>Actor</th>
+                        <th>Role</th>
+                        <th>Resource</th>
+                        <th>Result</th>
+                        <th>Note</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.timestamp|default:log.createdAt }}</td>
+                        <td>{{ log.action }}</td>
+                        <td>{{ log.actorName }}</td>
+                        <td>{{ log.actorRole }}</td>
+                        <td>{{ log.resourceType }} {{ log.resourceId }}</td>
+                        <td>{{ log.result }}</td>
+                        <td>{{ log.securityMetadata.note|default:log.correlationId }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7">No audit records match.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

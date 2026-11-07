@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+
+{% block content_title %}Platform configuration{% endblock %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'admin:index' %}">Home</a></li>
+    <li class="breadcrumb-item">Platform configuration</li>
+</ol>
+{% endblock %}
+
+{% block content %}
+<div class="col-12 col-lg-8">
+    <section class="orzo-admin-hero orzo-admin-hero-compact">
+        <div class="orzo-admin-kicker">System Governance & Registry</div>
+        <h1>Platform configuration</h1>
+        <p>These settings are stored in the same database the web platform admin uses.</p>
+    </section>
+    <form method="post" class="card orzo-config-card">
+        {% csrf_token %}
+        <div class="card-body">
+            <label>Interpreter assignment accept timeout (seconds)</label>
+            <input class="form-control" type="number" min="15" max="180" name="assignmentTimeoutSeconds" value="{{ settings_doc.assignmentTimeoutSeconds|default:45 }}">
+
+            <label>Maximum automated dispatch retries</label>
+            <input class="form-control" type="number" min="1" max="5" name="maxAutoRetries" value="{{ settings_doc.maxAutoRetries|default:3 }}">
+
+            <label class="orzo-check"><input type="checkbox" name="emergencyPriorityBypass" {% if settings_doc.emergencyPriorityBypass %}checked{% endif %}> Emergency priority bypass</label>
+            <label class="orzo-check"><input type="checkbox" name="telecomLowBandwidthPreset" {% if settings_doc.telecomLowBandwidthPreset %}checked{% endif %}> Low-bandwidth voice fallback</label>
+            <label class="orzo-check"><input type="checkbox" name="allowDirectRecording" {% if settings_doc.allowDirectRecording %}checked{% endif %}> Allow session recording (requires legal approval and consent)</label>
+
+            <label>System announcement banner</label>
+            <input class="form-control" type="text" name="systemBannerNotice" value="{{ settings_doc.systemBannerNotice|default:'' }}">
+
+            <button class="btn btn-primary mt-3" type="submit">Save configuration</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

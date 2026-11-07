@@ -1,0 +1,60 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content_title %}Platform Administration & Audit{% endblock %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'admin:index' %}">Home</a></li>
+    <li class="breadcrumb-item">Platform admin</li>
+</ol>
+{% endblock %}
+
+{% block content %}
+<div class="col-12">
+    <section class="orzo-admin-hero">
+        <div class="orzo-admin-kicker">System Governance & Registry</div>
+        <div class="orzo-admin-hero-row">
+            <div>
+                <h1>Platform Administration & Audit</h1>
+                <p>Control the national language catalog, verify interpreter certifications, manage telecom resilience presets, and inspect security audit trails.</p>
+            </div>
+            <span class="orzo-admin-pill">Admin: {{ request.user.get_username }}</span>
+        </div>
+        <div class="orzo-admin-tabs">
+            <a href="/admin/api/account/?role__exact=client">Organizations <strong>{{ organization_count }}</strong></a>
+            <a href="{% url 'admin:api_language_changelist' %}">Supported Languages <strong>{{ language_count }}</strong></a>
+            <a href="{% url 'admin:api_interpreter_changelist' %}">Interpreter Accreditation Registry <strong>{{ interpreter_count }}</strong></a>
+            <a href="{% url 'admin:platform-configuration' %}">Platform Configuration</a>
+            <a href="{% url 'admin:security-audit' %}">Security Audit Logs <strong>{{ audit_count }}</strong></a>
+        </div>
+    </section>
+
+    <div class="orzo-admin-grid">
+        <a class="orzo-admin-card" href="/admin/api/account/?role__exact=client">
+            <h2>Organizations</h2>
+            <p>Organization administrators and triage desks from the live portal.</p>
+        </a>
+        <a class="orzo-admin-card" href="{% url 'admin:api_language_changelist' %}">
+            <h2>Supported languages</h2>
+            <p>{{ language_count }} languages in the shared catalog. Deactivate a language instead of deleting it.</p>
+        </a>
+        <a class="orzo-admin-card" href="{% url 'admin:api_interpreter_changelist' %}">
+            <h2>Accreditation registry</h2>
+            <p>{{ interpreter_count }} interpreter profiles. Approve, reject, suspend, or reinstate from the record.</p>
+        </a>
+        <a class="orzo-admin-card" href="{% url 'admin:api_interpretationrequest_changelist' %}">
+            <h2>Interpretation requests</h2>
+            <p>{{ request_count }} requests saved by the web desks.</p>
+        </a>
+        <a class="orzo-admin-card" href="{% url 'admin:platform-configuration' %}">
+            <h2>Platform configuration</h2>
+            <p>Assignment timeout, emergency bypass, low-bandwidth mode, recording policy, and the system banner.</p>
+        </a>
+        <a class="orzo-admin-card" href="{% url 'admin:security-audit' %}">
+            <h2>Security audit logs</h2>
+            <p>Search the same audit trail the web platform administrator sees.</p>
+        </a>
+    </div>
+</div>
+{% endblock %}
