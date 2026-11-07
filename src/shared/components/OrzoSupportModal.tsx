@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../api';
 import {
+  Languages,
   MessageSquare,
   Mic,
   Square,
@@ -27,28 +28,22 @@ interface OrzoSupportModalProps {
   onSelectLanguageForRequest?: (languageCode: string) => void;
 }
 
-const SUPPORT_WELCOME: Record<string, { text: string; lang: string }> = {
-  am: {
-    text: 'ሰላም። ወደ ኦርዞ ድጋፍ እንኳን በደህና መጡ። በቋንቋ ማዛመድ፣ በስራ ሂደት ወይም በቀበሌ መለያ እንዴት ልርዳዎ?',
-    lang: 'am-ET',
-  },
-  en: {
-    text: 'Welcome to ORZO Support. How can I assist you with language matching, dispatch, or dialect identification today?',
-    lang: 'en-US',
-  },
-  om: {
-    text: 'Baga nagaan dhufte gara deeggarsa ORZO. Akkaataa afaanii, hojii, yookaan loqoda irratti akkamittiin si gargaaruu dandaʼa?',
-    lang: 'om-ET',
-  },
-  ti: {
-    text: 'ሰላም። እንቋዕ ብደሓን መጻእኩም ናብ ደገፍ ኦርዞ። ብምውህሃድ ቋንቋ፣ ብስራሕ ወይ ብመለለዪ ቀበሌ ብኸመይ ክሕግዘኩም?',
-    lang: 'ti-ET',
-  },
-  so: {
-    text: 'Ku soo dhawoow taageerada ORZO. Sideen kaaga caawin karaa arrimaha luqadda, howsha, ama aqoonsiga lahjadda?',
-    lang: 'so-SO',
-  },
-};
+const WELCOME_LINES = [
+  { text: 'Welcome to ORZO Support', lang: 'en-US' },
+  { text: 'እንኳን ወደ ኦርዞ ድጋፍ በደህና መጡ', lang: 'am-ET' },
+  { text: 'Baga nagaan gara deeggarsa ORZO dhuftan', lang: 'om-ET' },
+  { text: 'እንቋዕ ናብ ደገፍ ኦርዞ ብደሓን መጻእኩም', lang: 'ti-ET' },
+];
+
+const WELCOME_TEXT = WELCOME_LINES.map((line) => line.text).join('\n');
+
+const REPLY_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'am', label: 'አማርኛ' },
+  { code: 'om', label: 'Afaan Oromoo' },
+  { code: 'ti', label: 'ትግርኛ' },
+  { code: 'so', label: 'Af-Soomaali' },
+];
 
 interface Message {
   id: string;
@@ -67,6 +62,8 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
   onSelectLanguageForRequest,
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'audio_id'>('chat');
+  const [replyLocale, setReplyLocale] = useState(() => (REPLY_LANGUAGES.some((item) => item.code === locale) ? locale : 'en'));
+  const replyLanguage = REPLY_LANGUAGES.find((item) => item.code === replyLocale) || REPLY_LANGUAGES[0];
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
 
@@ -80,7 +77,7 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
     {
       id: 'welcome-1',
       sender: 'orzo',
-      text: 'ሰላም! Welcome to ORZO Support. How can I assist you with language matching, dispatch workflows, or dialect identification today?',
+      text: WELCOME_TEXT,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -96,6 +93,11 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<any>(null);
+  const questionRecorderRef = useRef<MediaRecorder | null>(null);
+  const questionChunksRef = useRef<Blob[]>([]);
+  const questionTimerRef = useRef<number | null>(null);
+  const [questionRecording, setQuestionRecording] = useState(false);
+  const [questionSeconds, setQuestionSeconds] = useState(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,34 +107,13 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
   }, [messages, isLoading, analyzingAudio]);
 
   useEffect(() => {
-    const copy = SUPPORT_WELCOME[locale] || SUPPORT_WELCOME.am;
-    setMessages((prev) => prev.map((item) => (item.id === 'welcome-1' ? { ...item, text: copy.text } : item)));
+    setMessages((prev) => prev.map((item) => (item.id === 'welcome-1' ? { ...item, text: WELCOME_TEXT } : item)));
   }, [locale]);
 
   useEffect(() => {
-    if (!isOpen || !announce || typeof window === 'undefined' || !window.speechSynthesis) return;
-    const welcomeCopy = SUPPORT_WELCOME[locale] || SUPPORT_WELCOME.am;
-    let started = false;
-    const speak = () => {
-      if (started) return;
-      const voices = window.speechSynthesis.getVoices();
-      const voice = voices.find((item) => item.lang.toLowerCase().startsWith(welcomeCopy.lang.slice(0, 2).toLowerCase()));
-      if (!voice && voices.length === 0) return;
-      started = true;
-      window.speechSynthesis.cancel();
-      const welcome = new SpeechSynthesisUtterance(welcomeCopy.text);
-      welcome.lang = welcomeCopy.lang;
-      welcome.rate = 0.92;
-      if (voice) welcome.voice = voice;
-      window.speechSynthesis.speak(welcome);
-    };
-    speak();
-    window.speechSynthesis.addEventListener('voiceschanged', speak);
-    return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', speak);
-      window.speechSynthesis.cancel();
-    };
-  }, [isOpen, announce, locale]);
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -158,7 +139,7 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
         content: m.text,
       }));
 
-      const res = await api.askOrzoSupport(textToSend, history);
+      const res = await api.askOrzoSupport(textToSend, history, replyLocale);
       const orzoMsg: Message = {
         id: `orzo-${Date.now()}`,
         sender: 'orzo',
@@ -188,7 +169,10 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
       setRecordedAudioBase64(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const preferredType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+      const recorder = preferredType
+        ? new MediaRecorder(stream, { mimeType: preferredType, audioBitsPerSecond: 16000 })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -231,6 +215,82 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
     }
   };
 
+  const submitSpokenQuestion = async (audioBase64: string) => {
+    setIsLoading(true);
+    try {
+      const history = messages.map((m) => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      }));
+      const res = await api.askSpokenQuestion(audioBase64, history, replyLocale);
+      const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setMessages((prev) => [
+        ...prev,
+        { id: `user-${Date.now()}`, sender: 'user', text: res.transcript, timestamp: stamp },
+        { id: `orzo-${Date.now()}`, sender: 'orzo', text: res.response, timestamp: stamp },
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `orzo-err-${Date.now()}`,
+          sender: 'orzo',
+          text: `ORZO Support notice: ${err.message}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const startQuestionRecording = async () => {
+    try {
+      if (isRecording) stopRecording();
+      questionChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+      const recorder = preferredType
+        ? new MediaRecorder(stream, { mimeType: preferredType, audioBitsPerSecond: 16000 })
+        : new MediaRecorder(stream);
+      questionRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) questionChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(questionChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          void submitSpokenQuestion(reader.result as string);
+        };
+      };
+
+      recorder.start(100);
+      setQuestionRecording(true);
+      setQuestionSeconds(0);
+      questionTimerRef.current = window.setInterval(() => {
+        setQuestionSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      alert(`Microphone permission notice: ${err.message}`);
+    }
+  };
+
+  const stopQuestionRecording = () => {
+    if (questionRecorderRef.current && questionRecording) {
+      questionRecorderRef.current.stop();
+      setQuestionRecording(false);
+      if (questionTimerRef.current) {
+        window.clearInterval(questionTimerRef.current);
+        questionTimerRef.current = null;
+      }
+    }
+  };
+
   // Analyze Audio
   const handleAnalyzeAudio = async (sampleId?: string, sampleName?: string) => {
     setAnalyzingAudio(true);
@@ -255,7 +315,7 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
       const orzoAudioAnswer: Message = {
         id: `aud-res-${Date.now()}`,
         sender: 'orzo',
-        text: `Identified Language: **${res.result.languageName} (${res.result.nativeName})**\nConfidence: ${res.result.confidencePercent}%\nDialect Variant: ${res.result.dialectVariant}\n\nTranscript Snippet:\n${res.result.transcriptSnippet}\n\nLinguistic Characteristics:\n${res.result.linguisticCharacteristics}`,
+        text: `Identified language: ${res.result.languageName}${res.result.nativeName ? ` (${res.result.nativeName})` : ''}\nConfidence: ${res.result.confidencePercent}%\nDialect: ${res.result.dialectVariant || 'Not stated'}\n\nTranscript:\n${res.result.transcriptSnippet || 'No transcript'}\n\n${res.result.linguisticCharacteristics}\n\n${res.result.recommendedAction}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         audioResult: res.result,
       };
@@ -381,7 +441,7 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
                   >
                     <p className="whitespace-pre-line">{m.text}</p>
 
-                    {m.audioResult && (
+                    {m.audioResult?.identifiedLanguageCode && (
                       <div className="mt-3 pt-2.5 border-t border-gray-200 flex flex-col space-y-2">
                         <button
                           onClick={() => handlePreFillRequest(m.audioResult.identifiedLanguageCode)}
@@ -413,14 +473,43 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
               {isLoading && (
                 <div className="flex items-center space-x-2 text-xs text-gray-500 pl-9">
                   <Sparkles className="w-4 h-4 text-blue-500 animate-spin" />
-                  <span>ORZO Support is preparing response...</span>
+                  <span>ORZO Support is answering in {replyLanguage.label}...</span>
                 </div>
               )}
+            </div>
+
+            <div className="px-4 py-2 border-t border-gray-100 bg-white flex items-center justify-between gap-3">
+              <label htmlFor="orzo-reply-language" className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 shrink-0">
+                <Languages className="w-3.5 h-3.5 text-blue-700" />
+                Reply in
+              </label>
+              <select
+                id="orzo-reply-language"
+                value={replyLocale}
+                onChange={(event) => setReplyLocale(event.target.value)}
+                className="min-w-0 text-xs font-semibold border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-600 cursor-pointer"
+              >
+                {REPLY_LANGUAGES.map((language) => (
+                  <option key={language.code} value={language.code}>{language.label}</option>
+                ))}
+              </select>
             </div>
 
             {/* Quick Prompt Suggestions */}
             <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center space-x-2 overflow-x-auto text-[11px] text-gray-600">
               <span className="font-semibold text-gray-400 shrink-0">Quick Ask:</span>
+              <button
+                onClick={() => handleSendMessage('Who is Estif?')}
+                className="bg-white border border-gray-300 rounded-full px-2.5 py-1 hover:border-blue-600 shrink-0 cursor-pointer"
+              >
+                Who is Estif?
+              </button>
+              <button
+                onClick={() => handleSendMessage('What is ORZO Translation?')}
+                className="bg-white border border-gray-300 rounded-full px-2.5 py-1 hover:border-blue-600 shrink-0 cursor-pointer"
+              >
+                What is ORZO Translation?
+              </button>
               <button
                 onClick={() => handleSendMessage('Which Ethiopian languages are currently supported?')}
                 className="bg-white border border-gray-300 rounded-full px-2.5 py-1 hover:border-blue-600 shrink-0 cursor-pointer"
@@ -449,16 +538,29 @@ export const OrzoSupportModal: React.FC<OrzoSupportModalProps> = ({
               }}
               className="p-3 bg-white border-t border-gray-200 flex items-center space-x-2"
             >
-              <input
-                type="text"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Ask about languages, workflows, or dispatch..."
-                className="flex-1 text-xs border border-gray-300 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
-              />
+              <button
+                type="button"
+                onClick={questionRecording ? stopQuestionRecording : startQuestionRecording}
+                disabled={isLoading}
+                className={`p-2.5 rounded-xl cursor-pointer disabled:opacity-50 ${questionRecording ? 'bg-red-600 text-white' : 'border border-gray-300 text-slate-700 hover:border-blue-600'}`}
+                title={questionRecording ? 'Stop and send the question' : 'Record a question'}
+              >
+                {questionRecording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+              {questionRecording ? (
+                <p className="flex-1 text-xs font-bold text-red-600">Recording your question 00:{questionSeconds.toString().padStart(2, '0')}</p>
+              ) : (
+                <input
+                  type="text"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  placeholder="Type or record a question..."
+                  className="flex-1 text-xs border border-gray-300 rounded-xl p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              )}
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={!inputMessage.trim() || isLoading || questionRecording}
                 className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-xl disabled:opacity-50 cursor-pointer"
               >
                 <Send className="w-4 h-4" />

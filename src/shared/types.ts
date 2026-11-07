@@ -10,9 +10,11 @@ export interface User {
   clientAccountType?: ClientAccountType;
   phone: string;
   organizationName: string;
+  workplace?: ServiceCategory;
   status: UserStatus;
   createdAt: string;
   avatarUrl?: string;
+  mustChangePassword?: boolean;
 }
 
 export interface SupportedLanguage {

@@ -109,19 +109,12 @@ export function usePortal() {
   const supportOpened = useRef(new Set<string>());
   const joinedSessions = useRef(new Set<string>());
   const knownCompleted = useRef(new Set<string>());
-  const completionReady = useRef(false);
+  const completionReadyFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'client') return;
     for (const request of requests) {
       if (request.requesterId !== currentUser.id) continue;
-      if (request.escalationReason?.startsWith('ORZO Support') && !supportOpened.current.has(request.reference)) {
-        supportOpened.current.add(request.reference);
-        setActiveSessionRoomId(null);
-        setSupportVoice(false);
-        setSupportExpanded(true);
-        setIsOrzoSupportOpen(true);
-      }
       if (request.status === 'in_session' && request.activeSessionId && !joinedSessions.current.has(request.activeSessionId)) {
         joinedSessions.current.add(request.activeSessionId);
         setActiveSessionRoomId(request.activeSessionId);
@@ -134,8 +127,13 @@ export function usePortal() {
     const timer = window.setInterval(() => {
       const now = Date.now();
       for (const request of requests) {
+        if (feedbackModalSessionId) continue;
         if (request.requesterId !== currentUser.id || request.status !== 'assigned') continue;
         if (supportOpened.current.has(request.reference)) continue;
+        const liveSession = sessions.find(
+          (item) => item.id === request.activeSessionId || item.requestReference === request.reference,
+        );
+        if (liveSession && !['awaiting_acceptance', 'searching', 'created'].includes(liveSession.status)) continue;
         const assignment = assignments.find(
           (item) => item.requestReference === request.reference && item.outcome === 'pending',
         );
@@ -149,15 +147,22 @@ export function usePortal() {
       }
     }, 250);
     return () => window.clearInterval(timer);
-  }, [assignments, requests, currentUser, refreshData]);
+  }, [assignments, requests, sessions, currentUser, refreshData, feedbackModalSessionId]);
 
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'client') return;
-    if (!completionReady.current) {
-      requests
-        .filter((request) => request.status === 'completed')
-        .forEach((request) => knownCompleted.current.add(request.reference));
-      completionReady.current = true;
+    if (!currentUser || currentUser.role !== 'client') {
+      completionReadyFor.current = null;
+      return;
+    }
+    if (completionReadyFor.current !== currentUser.id) {
+      if (loading) return;
+      knownCompleted.current = new Set(
+        requests
+          .filter((request) => request.requesterId === currentUser.id && request.status === 'completed')
+          .map((request) => request.reference),
+      );
+      completionReadyFor.current = currentUser.id;
+      setFeedbackModalSessionId(null);
       return;
     }
     for (const request of requests) {
@@ -165,9 +170,12 @@ export function usePortal() {
       if (knownCompleted.current.has(request.reference)) continue;
       knownCompleted.current.add(request.reference);
       setActiveSessionRoomId(null);
+      setSupportVoice(false);
+      setSupportExpanded(false);
+      setIsOrzoSupportOpen(false);
       setFeedbackModalSessionId(request.activeSessionId);
     }
-  }, [requests, currentUser]);
+  }, [requests, currentUser, loading]);
 
   const handleSwitchUser = async (userId: string) => {
     try {
@@ -203,6 +211,20 @@ export function usePortal() {
     }
   };
 
+  const completePasswordChange = (user: User) => {
+    setCurrentUser({ ...user, mustChangePassword: false });
+  };
+
+  const acceptPasswordSetup = async (result: { token: string; user: User; interpreterProfile: InterpreterProfile | null }) => {
+    sessionStorage.setItem('orzo-session-token', result.token);
+    sessionStorage.setItem('orzo-web-session', '1');
+    window.history.replaceState({}, '', window.location.pathname);
+    setLoading(true);
+    setCurrentUser({ ...result.user, mustChangePassword: false });
+    setInterpreterProfile(result.interpreterProfile);
+    await refreshData();
+  };
+
   const handleLogout = async () => {
     try {
       await api.logout();
@@ -214,6 +236,8 @@ export function usePortal() {
     setCurrentUser(null);
     setInterpreterProfile(null);
     setNotifications([]);
+    setFeedbackModalSessionId(null);
+    setActiveSessionRoomId(null);
   };
 
   const handleCreateRequest = async (data: {
@@ -316,6 +340,9 @@ export function usePortal() {
   const handleSubmitFeedback = async (data: { sessionId: string; rating: number; comment?: string }) => {
     await api.submitFeedback(data);
     setFeedbackModalSessionId(null);
+    setSupportVoice(false);
+    setSupportExpanded(false);
+    setIsOrzoSupportOpen(false);
     await refreshData();
   };
 
@@ -369,6 +396,8 @@ export function usePortal() {
     handleSwitchUser,
     handleLogin,
     handleLogout,
+    completePasswordChange,
+    acceptPasswordSetup,
     handleCreateRequest,
     handleCancelRequest,
     handleToggleAvailability,

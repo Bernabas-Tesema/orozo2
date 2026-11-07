@@ -19,10 +19,12 @@ import {
   BadgeCheck,
   History,
   ArrowLeft,
+  KeyRound,
 } from 'lucide-react';
 import { MedicalBackgroundPattern } from '../client/MedicalBackgroundPattern';
 import { HistoryRange, inHistoryRange } from '../shared/historyRange';
 import { HistoryRangeControl } from '../shared/components/HistoryRangeControl';
+import { ChangePasswordPage } from '../shared/components/ChangePasswordPage';
 
 interface InterpreterPortalProps {
   currentUser: User;
@@ -56,6 +58,7 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const [detail, setDetail] = useState<'languages' | 'record' | 'history' | null>(null);
   const [historyRange, setHistoryRange] = useState<HistoryRange>('month');
   const [reviews, setReviews] = useState<Array<{ rating: number; comment: string; submittedAt: string; requestReference: string }>>([]);
@@ -170,6 +173,16 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
     };
   }, [pendingAssignment?.id]);
 
+  if (changingPassword) {
+    return (
+      <ChangePasswordPage
+        user={currentUser}
+        onComplete={() => setChangingPassword(false)}
+        onCancel={() => setChangingPassword(false)}
+      />
+    );
+  }
+
   if (!profile) {
     return (
       <InterpreterShell
@@ -253,6 +266,14 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
   const pendingReq = pendingAssignment
     ? requests.find((r) => r.reference === pendingAssignment.requestReference)
     : null;
+  const latestAssignment = [...assignments]
+    .filter((item) => item.interpreterId === profile.id)
+    .sort((a, b) => new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime())[0];
+  const missedCall = latestAssignment && (latestAssignment.outcome === 'expired' || latestAssignment.response === 'timeout')
+    ? latestAssignment
+    : null;
+  const missedReq = missedCall ? requests.find((item) => item.reference === missedCall.requestReference) : null;
+  const showMissedCall = Boolean(missedCall) && !pendingAssignment && !profile.activeSessionId;
 
   const detectedStatus = profile.availability === 'busy' ? 'Busy on a call' : profile.availability === 'offline' ? 'Offline' : 'Available';
   const languageName = (code: string) => languages.find((item) => item.code === code)?.name || code.toUpperCase();
@@ -347,10 +368,19 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
                 <article key={item.id} className="rounded-2xl border border-white/15 bg-white/10 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-mono text-xs text-white/70">{item.requestReference}</p>
-                    <span className="rounded-full border border-white/20 px-2 py-0.5 text-[10px] font-bold uppercase">{item.outcome}</span>
+                    <span className="rounded-full border border-white/20 px-2 py-0.5 text-[10px] font-bold uppercase">
+                      {item.outcome === 'expired' || item.response === 'timeout' ? 'Missed' : item.outcome}
+                    </span>
                   </div>
                   <p className="mt-2 text-sm font-bold">
                     {request ? `${languageName(request.sourceLanguage)} to ${languageName(request.targetLanguage)}` : 'Interpretation call'}
+                  </p>
+                  <p className="mt-1 text-xs text-white/70">
+                    {item.outcome === 'expired' || item.response === 'timeout'
+                      ? 'Missed. The timer ended before you answered, so the desk moved to ORZO Support.'
+                      : item.outcome === 'rejected'
+                        ? `Declined${item.rejectionReason ? `: ${item.rejectionReason}` : '.'}`
+                        : 'Answered and connected.'}
                   </p>
                   <p className="mt-1 text-xs text-white/70">
                     {request?.organizationName || 'ORZO'} · {new Date(item.assignedAt).toLocaleString()}
@@ -416,6 +446,10 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
         <button type="button" onClick={() => setProfileOpen(true)} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-blue-600 px-3 text-[11px] font-bold text-white hover:bg-blue-500">
           <UserRound className="h-3.5 w-3.5" />
           My profile
+        </button>
+        <button type="button" onClick={() => setChangingPassword(true)} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-bold text-white hover:bg-white/20">
+          <KeyRound className="h-3.5 w-3.5" />
+          Password
         </button>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -551,7 +585,31 @@ export const InterpreterPortal: React.FC<InterpreterPortalProps> = ({
           </div>
         </div>
       )}
-      {!pendingAssignment && !profile.activeSessionId && (
+      {showMissedCall && missedCall && (
+        <div className="rounded-2xl border border-rose-300/40 bg-rose-500/10 p-5 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="bg-rose-500 text-white font-black text-[10px] px-2 py-0.5 rounded-md uppercase tracking-wider">
+              Missed call
+            </span>
+            <span className="text-[11px] font-mono text-white/80">{missedCall.requestReference}</span>
+          </div>
+          <p className="text-sm font-bold">You did not answer before the timer ended.</p>
+          <p className="text-xs leading-relaxed text-white/75">
+            This request rang on your desk and the countdown finished without an answer. It has been handed to ORZO Support and is no longer waiting for you.
+          </p>
+          {missedReq && (
+            <p className="text-xs text-white/70">
+              {missedReq.organizationName}. {languageName(missedReq.sourceLanguage)} to {languageName(missedReq.targetLanguage)}.
+            </p>
+          )}
+          <p className="text-[11px] text-white/50">
+            {new Date(missedCall.respondedAt || missedCall.expiresAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            . The next request will appear in this box.
+          </p>
+        </div>
+      )}
+
+      {!pendingAssignment && !profile.activeSessionId && !showMissedCall && (
         <div className="rounded-2xl border border-white/15 bg-white/5 p-5">
           <p className="text-sm font-bold">Waiting for a request</p>
           <p className="mt-1 text-xs text-white/70">An iPhone-style marimba ringtone plays here when a caller asks for you. Answer before the timer ends.</p>

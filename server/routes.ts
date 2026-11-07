@@ -12,8 +12,8 @@ import {
 } from './types';
 import { dispatchRequest, handleAssignmentResponse, findEligibleInterpreters, expireMissedAssignments, handoffUnansweredAssignment } from './matchingEngine';
 import { schedulePortalPersist } from './postgresStore';
-import { askOrzoSupport, identifyAudioLanguage } from './orzoSupportService';
-import { mailConfigured, sendCredentialEmail } from './mail';
+import { answerSpokenQuestion, askOrzoSupport, identifyAudioLanguage } from './orzoSupportService';
+import { mailConfigured, sendCredentialEmail, sendOrganizationCredentials } from './mail';
 import { AccessToken } from 'livekit-server-sdk';
 
 const router = Router();
@@ -44,10 +44,10 @@ async function credentialNotice(input: {
   password: string;
 }) {
   if (!mailConfigured()) {
-    return `Account created for ${input.to}. Email is not configured, so share the password you entered.`;
+    return `Saved in the database for ${input.to}. Email is not configured, so share the temporary password you entered. They must replace it on first sign-in.`;
   }
   await sendCredentialEmail(input);
-  return `Credentials were sent to ${input.to}.`;
+  return `Saved in the database. Credentials were sent to ${input.to}. They must replace the temporary password on first sign-in.`;
 }
 
 function minutesForRequest(reference: string) {
@@ -63,8 +63,17 @@ function bearerToken(req: Request) {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
+function presentUser(user: ReturnType<typeof db.userForWebSession>) {
+  if (!user) return null;
+  return {
+    ...user,
+    workplace: user.workplace || db.workplaceFor(user.organizationName),
+    mustChangePassword: db.requiresPasswordChange(user.id),
+  };
+}
+
 // Each browser window keeps its own sign-in, so a client and an interpreter can be online together.
-router.use((req: Request, _res: Response, next) => {
+router.use((req: Request, res: Response, next) => {
   const token = bearerToken(req);
   const current = db.userForWebSession(token);
   if (current?.role === 'interpreter') db.noteInterpreterPresence(current.id);
@@ -72,6 +81,13 @@ router.use((req: Request, _res: Response, next) => {
   if (current && expireMissedAssignments() > 0) schedulePortalPersist();
   (req as any).user = current;
   (req as any).sessionToken = token;
+  const passwordResetOpen = req.path === '/auth/change-password' || req.path === '/auth/logout' || req.path === '/auth/me';
+  if (current && db.requiresPasswordChange(current.id) && req.method !== 'GET' && !passwordResetOpen) {
+    return res.status(403).json({
+      error: 'Choose a new password before using the workspace.',
+      mustChangePassword: true,
+    });
+  }
   next();
 });
 
@@ -82,7 +98,7 @@ router.get('/auth/me', (req: Request, res: Response) => {
   const user = (req as any).user as ReturnType<typeof db.userForWebSession>;
   const interpreterProfile = user ? db.interpreters.find(i => i.userId === user.id) : null;
   res.json({
-    user: user || null,
+    user: presentUser(user),
     interpreterProfile: interpreterProfile || null,
   });
 });
@@ -123,10 +139,76 @@ router.post('/auth/login', (req: Request, res: Response) => {
   res.json({
     success: true,
     token,
-    user,
+    user: presentUser(user),
     interpreterProfile: interpreterProfile || null,
     message: `Logged in as ${user.fullName}`,
   });
+});
+
+router.post('/auth/setup-password', (req: Request, res: Response) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const currentPassword = String(req.body?.currentPassword || '');
+  const nextPassword = String(req.body?.nextPassword || '');
+  const user = db.users.find((account) => account.email.toLowerCase() === email);
+  if (!user || !db.checkPassword(user.id, currentPassword)) {
+    return res.status(401).json({ error: 'The email or temporary password is not correct.' });
+  }
+  try {
+    db.changePassword(user.id, currentPassword, nextPassword);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Could not change the password.';
+    return res.status(400).json({ error: message });
+  }
+  const token = db.openWebSession(user.id);
+  if (user.role === 'interpreter') db.noteInterpreterPresence(user.id);
+  const interpreterProfile = db.interpreters.find((item) => item.userId === user.id) || null;
+  db.logAudit({
+    actorId: user.id,
+    actorName: user.fullName,
+    actorRole: user.role,
+    action: 'PASSWORD_CHANGED',
+    resourceType: 'user_session',
+    resourceId: user.id,
+    result: 'success',
+    securityMetadata: { note: 'Chose a password from the registration email' },
+  });
+  res.json({
+    success: true,
+    token,
+    user: presentUser(user),
+    interpreterProfile,
+    message: 'Your new password is saved.',
+  });
+});
+
+router.post('/auth/change-password', (req: Request, res: Response) => {
+  const user = (req as any).user as ReturnType<typeof db.userForWebSession>;
+  if (!user) return res.status(401).json({ error: 'Sign in required.' });
+  const currentPassword = String(req.body?.currentPassword || '');
+  const nextPassword = String(req.body?.nextPassword || '');
+  try {
+    db.changePassword(user.id, currentPassword, nextPassword);
+    db.logAudit({
+      actorId: user.id,
+      actorName: user.fullName,
+      actorRole: user.role,
+      action: 'PASSWORD_CHANGED',
+      resourceType: 'user_session',
+      resourceId: user.id,
+      result: 'success',
+      securityMetadata: { note: 'Replaced the temporary sign-in password' },
+    });
+    const interpreterProfile = db.interpreters.find((item) => item.userId === user.id) || null;
+    res.json({
+      success: true,
+      user: presentUser(user),
+      interpreterProfile,
+      message: 'Your new password is saved.',
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Could not change the password.';
+    res.status(400).json({ error: message });
+  }
 });
 
 router.post('/auth/logout', (req: Request, res: Response) => {
@@ -489,7 +571,12 @@ router.get('/requests', (req: Request, res: Response) => {
     list = list.filter(r => r.requesterId === currentUser.id);
   } else if (currentUser.role === 'interpreter') {
     const interpProfile = db.interpreters.find(i => i.userId === currentUser.id);
-    list = list.filter(r => r.assignedInterpreterId === interpProfile?.id);
+    const offered = new Set(
+      db.assignments
+        .filter((item) => item.interpreterId === interpProfile?.id)
+        .map((item) => item.requestReference),
+    );
+    list = list.filter((item) => item.assignedInterpreterId === interpProfile?.id || offered.has(item.reference));
   }
   // Supervisors and Platform Admins see all requests
 
@@ -1372,13 +1459,17 @@ router.post('/organizations', async (req: Request, res: Response) => {
     deskEmail,
     deskPassword,
     phone,
+    workplace,
   } = req.body || {};
 
   if (!organizationName?.trim() || !adminName?.trim() || !adminEmail?.trim() || !deskEmail?.trim()) {
-    return res.status(400).json({ error: 'Organization name and both account emails are required.' });
+    return res.status(400).json({ error: 'The welcome email was not sent. The organization name, admin email, and triage desk email are all required.' });
+  }
+  if (String(adminEmail).trim().toLowerCase() === String(deskEmail).trim().toLowerCase()) {
+    return res.status(400).json({ error: 'The welcome email was not sent. The organization admin and the triage desk need two different email addresses.' });
   }
   if (!adminPassword || String(adminPassword).length < 6 || !deskPassword || String(deskPassword).length < 6) {
-    return res.status(400).json({ error: 'Each account needs a password of at least 6 characters.' });
+    return res.status(400).json({ error: 'The welcome email was not sent. Each account needs a password of at least 6 characters.' });
   }
 
   let created: ReturnType<typeof db.createOrganizationAccounts> | null = null;
@@ -1392,24 +1483,24 @@ router.post('/organizations', async (req: Request, res: Response) => {
       deskEmail,
       deskPassword: String(deskPassword),
       phone,
+      workplace,
     });
-    const adminNotice = await credentialNotice({
-      to: created.admin.email,
-      name: created.admin.fullName,
-      roleLabel: 'organization admin',
-      organizationName: created.admin.organizationName,
-      password: String(adminPassword),
-    });
-    const deskNotice = await credentialNotice({
-      to: created.desk.email,
-      name: created.desk.fullName,
-      roleLabel: 'triage desk',
-      organizationName: created.desk.organizationName,
-      password: String(deskPassword),
-    });
-    const message = mailConfigured()
-      ? `Credentials were sent to ${created.admin.email} and ${created.desk.email}.`
-      : `${adminNotice} ${deskNotice}`;
+    let message: string;
+    if (mailConfigured()) {
+      await sendOrganizationCredentials({
+        to: created.admin.email,
+        adminName: created.admin.fullName,
+        organizationName: created.admin.organizationName,
+        adminEmail: created.admin.email,
+        adminPassword: String(adminPassword),
+        deskName: created.desk.fullName,
+        deskEmail: created.desk.email,
+        deskPassword: String(deskPassword),
+      });
+      message = `Both the organization admin and triage desk sign-in details were sent to ${created.admin.email}.`;
+    } else {
+      message = `Saved in the database. Email is not configured, so share both temporary passwords with ${created.admin.email}.`;
+    }
     db.logAudit({
       actorId: currentUser.id,
       actorName: currentUser.fullName,
@@ -1431,8 +1522,9 @@ router.post('/organizations', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     if (created) db.removeAccounts([created.admin.id, created.desk.id]);
     const message = err instanceof Error ? err.message : 'Could not create the accounts.';
-    const status = message.includes('already exists') || message.includes('different emails') ? 400 : 502;
-    res.status(status).json({ error: message });
+    console.error('Organization email was not sent:', message);
+    const refused = /already registered|already exists|different email|not sent/i.test(message);
+    res.status(refused ? 400 : 502).json({ error: message });
   }
 });
 
@@ -1749,16 +1841,30 @@ router.patch('/notifications/:id/read', (req: Request, res: Response) => {
 // 12. ORZO CUSTOMER SUPPORT & AUDIO LANGUAGE IDENTIFICATION
 // ==========================================
 router.post('/support/chat', async (req: Request, res: Response) => {
-  const { message, chatHistory } = req.body;
+  const { message, chatHistory, locale } = req.body;
   if (!message || typeof message !== 'string') {
     return res.status(400).json({ error: 'Message is required' });
   }
 
   try {
-    const answer = await askOrzoSupport(message, chatHistory || []);
-    res.json({ response: answer });
+    const answer = await askOrzoSupport(message, chatHistory || [], typeof locale === 'string' ? locale : 'en');
+    res.json({ response: answer.text });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Error processing support query' });
+  }
+});
+
+router.post('/support/voice-question', async (req: Request, res: Response) => {
+  const { audioBase64, chatHistory, locale } = req.body || {};
+  if (!audioBase64 || typeof audioBase64 !== 'string') {
+    return res.status(400).json({ error: 'A voice recording is required.' });
+  }
+  try {
+    const answer = await answerSpokenQuestion(audioBase64, chatHistory || [], typeof locale === 'string' ? locale : 'en');
+    res.json({ transcript: answer.transcript, response: answer.text });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Could not answer that recording.';
+    res.status(422).json({ error: message });
   }
 });
 
@@ -1766,7 +1872,8 @@ router.post('/support/identify-audio', async (req: Request, res: Response) => {
   const { audioBase64, sampleId, clientNotes } = req.body;
   try {
     const result = await identifyAudioLanguage(audioBase64, sampleId, clientNotes);
-    res.json({ result });
+    const { engine: _engine, ...visible } = result;
+    res.json({ result: visible });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Error identifying language from audio' });
   }

@@ -15,6 +15,35 @@ const pool = new Pool({
 let persistChain: Promise<void> = Promise.resolve();
 let connected = false;
 
+async function widenPortalColumns(client: pg.PoolClient) {
+  const statements = [
+    'ALTER TABLE api_language ALTER COLUMN code TYPE varchar(32)',
+    'ALTER TABLE api_language ALTER COLUMN script TYPE varchar(32)',
+    'ALTER TABLE api_account ALTER COLUMN phone TYPE varchar(80)',
+    'ALTER TABLE api_account ALTER COLUMN password_hash TYPE varchar(512)',
+    'ALTER TABLE api_account ALTER COLUMN organization_name TYPE varchar(240)',
+    'ALTER TABLE api_interpreter ALTER COLUMN phone TYPE varchar(80)',
+    'ALTER TABLE api_interpretationrequest ALTER COLUMN reference TYPE varchar(64)',
+    'ALTER TABLE api_interpretationrequest ALTER COLUMN active_session_id TYPE varchar(64)',
+    'ALTER TABLE api_interpretationrequest ALTER COLUMN source_language TYPE varchar(32)',
+    'ALTER TABLE api_interpretationrequest ALTER COLUMN target_language TYPE varchar(32)',
+    'ALTER TABLE api_interpretationrequest ALTER COLUMN requester_phone TYPE varchar(80)',
+    'ALTER TABLE api_interpretationsession ALTER COLUMN id TYPE varchar(64)',
+    'ALTER TABLE api_interpretationsession ALTER COLUMN request_reference TYPE varchar(64)',
+    'ALTER TABLE api_interpretationsession ALTER COLUMN session_token TYPE varchar(160)',
+    'ALTER TABLE api_interpretationsession ALTER COLUMN source_language TYPE varchar(32)',
+    'ALTER TABLE api_interpretationsession ALTER COLUMN target_language TYPE varchar(32)',
+  ];
+  for (const sql of statements) {
+    try {
+      await client.query(sql);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Column widen skipped (${message}): ${sql}`);
+    }
+  }
+}
+
 function applyEnvAdminPassword() {
   const email = String(process.env.PLATFORM_ADMIN_EMAIL || '').trim().toLowerCase();
   const password = String(process.env.PLATFORM_ADMIN_PASSWORD || '');
@@ -157,6 +186,8 @@ async function loadDocuments(client: pg.PoolClient) {
   if (docs.has('settings')) db.settings = { ...db.settings, ...docs.get('settings') };
   if (docs.has('sessionParticipants')) db.sessionParticipants = docs.get('sessionParticipants');
   db.importPasswords(docs.get('passwords'));
+  db.importPasswordPolicy(docs.get('passwordPolicy'));
+  db.importWorkplaces(docs.get('workplaces'));
 }
 
 export async function connectPortalDatabase(): Promise<boolean> {
@@ -168,6 +199,7 @@ export async function connectPortalDatabase(): Promise<boolean> {
     await client.query(`ALTER TABLE api_interpreter ADD COLUMN IF NOT EXISTS photo_url TEXT NOT NULL DEFAULT ''`);
     await client.query(`ALTER TABLE api_interpreter ADD COLUMN IF NOT EXISTS preferred_mode TEXT NOT NULL DEFAULT 'audio'`);
     await client.query(`ALTER TABLE api_interpreter ADD COLUMN IF NOT EXISTS about_note TEXT NOT NULL DEFAULT ''`);
+    await widenPortalColumns(client);
 
     const accounts = await client.query('SELECT * FROM api_account');
     if (accounts.rowCount === 0) {
@@ -263,7 +295,11 @@ export async function connectPortalDatabase(): Promise<boolean> {
     console.log(
       `Portal connected to PostgreSQL ${process.env.DB_NAME || 'orzo_db'}: ${db.users.length} accounts, ${db.requests.length} requests, ${db.interpreters.length} interpreters.`,
     );
-    await persistPortalDatabase(client);
+    try {
+      await persistPortalDatabase(client);
+    } catch (error) {
+      console.error('Portal data loaded. The first database save will retry on the next change.', error);
+    }
     return true;
   } catch (error) {
     console.error('PostgreSQL connection failed. The portal is using its built-in records.', error);
@@ -465,6 +501,8 @@ async function persistPortalDatabase(existing?: pg.PoolClient) {
       settings: db.settings,
       sessionParticipants: db.sessionParticipants,
       passwords: db.exportPasswords(),
+      passwordPolicy: db.exportPasswordPolicy(),
+      workplaces: db.exportWorkplaces(),
     };
     for (const [key, payload] of Object.entries(documents)) {
       await client.query(
@@ -475,8 +513,9 @@ async function persistPortalDatabase(existing?: pg.PoolClient) {
     }
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => undefined);
     console.error('Failed to save portal data to PostgreSQL:', error);
+    throw error;
   } finally {
     if (!existing) client.release();
   }
@@ -487,4 +526,15 @@ export function schedulePortalPersist() {
   persistChain = persistChain.then(() => persistPortalDatabase()).catch((error) => {
     console.error('Portal persist failed:', error);
   });
+}
+
+export async function flushPortalPersist() {
+  if (!connected) {
+    throw new Error('PostgreSQL is not connected, so this change was not saved.');
+  }
+  const run = persistChain.then(() => persistPortalDatabase());
+  persistChain = run.catch((error) => {
+    console.error('Portal persist failed:', error);
+  });
+  await run;
 }

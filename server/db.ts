@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isWorkplace, workplaceFromName } from './workplace';
 import {
   User,
   SupportedLanguage,
@@ -877,6 +878,9 @@ class DatabaseStore {
       .filter(Boolean);
   }
 
+  private mustChangePassword = new Set<string>();
+  private organizationWorkplaces: Record<string, ServiceCategory> = {};
+
   hasPassword(userId: string): boolean {
     const stored = this.passwords.get(userId);
     return Boolean(stored && isUsablePasswordRecord(stored));
@@ -889,6 +893,64 @@ class DatabaseStore {
     return stored === password;
   }
 
+  requiresPasswordChange(userId: string): boolean {
+    return this.mustChangePassword.has(userId);
+  }
+
+  rememberPassword(userId: string, password: string, temporary = false) {
+    this.passwords.set(userId, hashPassword(password));
+    if (temporary) this.mustChangePassword.add(userId);
+    else this.mustChangePassword.delete(userId);
+  }
+
+  changePassword(userId: string, currentPassword: string, nextPassword: string) {
+    if (!this.checkPassword(userId, currentPassword)) {
+      throw new Error('The current password is not correct.');
+    }
+    const next = String(nextPassword || '');
+    if (next.length < 8) throw new Error('Use at least 8 characters.');
+    if (!/[A-Za-z]/.test(next) || !/\d/.test(next)) {
+      throw new Error('Use at least one letter and one number.');
+    }
+    if (next === currentPassword) {
+      throw new Error('Choose a password that is different from the temporary one.');
+    }
+    this.rememberPassword(userId, next, false);
+  }
+
+  exportPasswordPolicy(): string[] {
+    return [...this.mustChangePassword];
+  }
+
+  importPasswordPolicy(ids: unknown) {
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) {
+      if (typeof id === 'string' && id) this.mustChangePassword.add(id);
+    }
+  }
+
+  exportWorkplaces(): Record<string, ServiceCategory> {
+    return { ...this.organizationWorkplaces };
+  }
+
+  importWorkplaces(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+    const saved: Record<string, ServiceCategory> = {};
+    for (const [name, workplace] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof workplace === 'string' && isWorkplace(workplace)) saved[name] = workplace;
+    }
+    this.organizationWorkplaces = saved;
+    for (const user of this.users) {
+      const workplace = saved[user.organizationName.trim().toLowerCase()];
+      if (workplace) user.workplace = workplace;
+    }
+  }
+
+  workplaceFor(organizationName: string): ServiceCategory {
+    const key = organizationName.trim().toLowerCase();
+    return this.organizationWorkplaces[key] || workplaceFromName(organizationName);
+  }
+
   createOrganizationAccounts(input: {
     organizationName: string;
     adminName: string;
@@ -898,22 +960,28 @@ class DatabaseStore {
     deskEmail: string;
     deskPassword: string;
     phone?: string;
+    workplace?: ServiceCategory;
   }): { admin: User; desk: User } {
     const adminEmail = input.adminEmail.trim().toLowerCase();
     const deskEmail = input.deskEmail.trim().toLowerCase();
     if (adminEmail === deskEmail) {
-      throw new Error('The organization admin and the triage desk need different emails.');
+      throw new Error('The welcome email was not sent. The organization admin and the triage desk need different emails.');
     }
     const taken = this.users.some((user) => {
       const email = user.email.toLowerCase();
       return email === adminEmail || email === deskEmail;
     });
     if (taken) {
-      throw new Error('An account with that email already exists.');
+      throw new Error('The welcome email was not sent. That email is already registered. Use a different email for the new account.');
     }
 
     const now = new Date().toISOString();
     const phone = input.phone?.trim() || '';
+    const organizationName = input.organizationName.trim();
+    const workplace = input.workplace && isWorkplace(input.workplace)
+      ? input.workplace
+      : workplaceFromName(organizationName);
+    this.organizationWorkplaces[organizationName.toLowerCase()] = workplace;
     const admin: User = {
       id: `usr-org-admin-${Date.now()}`,
       email: adminEmail,
@@ -921,7 +989,8 @@ class DatabaseStore {
       role: 'client',
       clientAccountType: 'organization_admin',
       phone,
-      organizationName: input.organizationName.trim(),
+      organizationName,
+      workplace,
       status: 'active',
       createdAt: now,
     };
@@ -932,13 +1001,14 @@ class DatabaseStore {
       role: 'client',
       clientAccountType: 'common_terminal',
       phone,
-      organizationName: input.organizationName.trim(),
+      organizationName,
+      workplace,
       status: 'active',
       createdAt: now,
     };
     this.users.push(admin, desk);
-    this.passwords.set(admin.id, input.adminPassword);
-    this.passwords.set(desk.id, input.deskPassword);
+    this.rememberPassword(admin.id, input.adminPassword, true);
+    this.rememberPassword(desk.id, input.deskPassword, true);
     return { admin, desk };
   }
 
@@ -988,7 +1058,7 @@ class DatabaseStore {
     };
     this.users.push(user);
     this.interpreters.push(profile);
-    this.passwords.set(user.id, input.password);
+    this.rememberPassword(user.id, input.password, true);
     return { user, profile };
   }
 
@@ -1013,7 +1083,7 @@ class DatabaseStore {
       createdAt: new Date().toISOString(),
     };
     this.users.push(user);
-    this.passwords.set(user.id, input.password);
+    this.rememberPassword(user.id, input.password, true);
     return user;
   }
 
@@ -1032,7 +1102,10 @@ class DatabaseStore {
     const ids = new Set(userIds);
     this.users = this.users.filter((user) => !ids.has(user.id));
     this.interpreters = this.interpreters.filter((person) => !ids.has(person.userId));
-    for (const id of ids) this.passwords.delete(id);
+    for (const id of ids) {
+      this.passwords.delete(id);
+      this.mustChangePassword.delete(id);
+    }
   }
 }
 
@@ -1049,6 +1122,13 @@ function djangoHashShape(encoded: string): boolean {
   if (!Number.isInteger(iterations) || iterations < 1 || !parts[2]) return false;
   const hash = Buffer.from(parts[3], 'base64');
   return hash.length >= 32 && parts[3].length >= 40;
+}
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('base64url');
+  const iterations = 260000;
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('base64');
+  return `pbkdf2_sha256$${iterations}$${salt}$${hash}`;
 }
 
 function verifyDjangoPbkdf2(password: string, encoded: string): boolean {

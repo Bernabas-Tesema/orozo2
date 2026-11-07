@@ -55,6 +55,8 @@ export const PlatformAdminPortal: React.FC<PlatformAdminPortalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'languages' | 'verification' | 'settings' | 'audit' | 'organizations'>('organizations');
   const [orgName, setOrgName] = useState('');
+  const [orgWorkplace, setOrgWorkplace] = useState('healthcare');
+  const [workplaceTouched, setWorkplaceTouched] = useState(false);
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -130,9 +132,12 @@ export const PlatformAdminPortal: React.FC<PlatformAdminPortalProps> = ({
         deskName: deskName || `${orgName} triage desk`,
         deskEmail,
         deskPassword,
+        workplace: orgWorkplace,
       });
       setOrgMessage(created.message);
       setOrgName('');
+      setOrgWorkplace('healthcare');
+      setWorkplaceTouched(false);
       setAdminName('');
       setAdminEmail('');
       setAdminPassword('');
@@ -367,19 +372,51 @@ export const PlatformAdminPortal: React.FC<PlatformAdminPortalProps> = ({
         <div className="grid gap-6 lg:grid-cols-2">
           <form onSubmit={registerOrganization} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-3">
             <h3 className="text-sm font-bold text-gray-900">Open an organization</h3>
-            <p className="text-xs text-gray-500">Each organization gets an admin account and a triage desk. The sign-in details are emailed to each address and are not shown here again.</p>
-            <input value={orgName} onChange={(e) => setOrgName(e.target.value)} required placeholder="Organization name" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <p className="text-xs text-gray-500">Each organization gets an admin account and a triage desk. Both sign-in details are emailed to the organization admin and are not shown here again.</p>
+            <input
+              value={orgName}
+              onChange={(e) => {
+                const name = e.target.value;
+                setOrgName(name);
+                if (!workplaceTouched) {
+                  const guessed = name.toLowerCase();
+                  if (/(court|judicial|bench|ፍርድ)/.test(guessed)) setOrgWorkplace('legal_court');
+                  else if (/(immigrat|refugee|unhcr|asylum)/.test(guessed)) setOrgWorkplace('immigration');
+                  else if (/(\bngo\b|humanitarian|charit)/.test(guessed)) setOrgWorkplace('ngo_humanitarian');
+                  else if (/(hospital|clinic|health)/.test(guessed)) setOrgWorkplace('healthcare');
+                }
+              }}
+              required
+              placeholder="Organization name"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            />
+            <select
+              value={orgWorkplace}
+              onChange={(e) => {
+                setWorkplaceTouched(true);
+                setOrgWorkplace(e.target.value);
+              }}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="healthcare">Healthcare</option>
+              <option value="legal_court">Court</option>
+              <option value="immigration">Immigration</option>
+              <option value="ngo_humanitarian">NGO</option>
+              <option value="public_services">Public services</option>
+            </select>
             <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">Organization admin</p>
             <input value={adminName} onChange={(e) => setAdminName(e.target.value)} required placeholder="Admin full name" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <input value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required type="email" placeholder="Admin email" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            <input value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} required type="password" minLength={6} placeholder="Admin password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <input value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} required type="password" minLength={6} placeholder="Temporary admin password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 pt-1">Triage desk</p>
             <input value={deskName} onChange={(e) => setDeskName(e.target.value)} placeholder="Desk name (optional)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <input value={deskEmail} onChange={(e) => setDeskEmail(e.target.value)} required type="email" placeholder="Triage desk email" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            <input value={deskPassword} onChange={(e) => setDeskPassword(e.target.value)} required type="password" minLength={6} placeholder="Triage desk password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <input value={deskPassword} onChange={(e) => setDeskPassword(e.target.value)} required type="password" minLength={6} placeholder="Temporary triage password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <button disabled={orgBusy} className="bg-purple-700 hover:bg-purple-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
               {orgBusy ? 'Sending...' : 'Create accounts and email credentials'}
             </button>
+            {orgError && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{orgError}</p>}
+            {orgMessage && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{orgMessage}</p>}
           </form>
 
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
@@ -402,10 +439,10 @@ export const PlatformAdminPortal: React.FC<PlatformAdminPortalProps> = ({
 
           <form onSubmit={registerSupervisor} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-3">
             <h3 className="text-sm font-bold text-gray-900">Create a supervisor</h3>
-            <p className="text-xs text-gray-500">A supervisor can open organizations and add interpreters.</p>
+            <p className="text-xs text-gray-500">A supervisor can open organizations and add interpreters. The temporary password is replaced on first sign-in, and the account is stored in PostgreSQL.</p>
             <input value={supervisorName} onChange={(e) => setSupervisorName(e.target.value)} required placeholder="Supervisor full name" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <input value={supervisorEmail} onChange={(e) => setSupervisorEmail(e.target.value)} required type="email" placeholder="Supervisor email" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            <input value={supervisorPassword} onChange={(e) => setSupervisorPassword(e.target.value)} required type="password" minLength={6} placeholder="Supervisor password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            <input value={supervisorPassword} onChange={(e) => setSupervisorPassword(e.target.value)} required type="password" minLength={6} placeholder="Temporary supervisor password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <input value={supervisorPhone} onChange={(e) => setSupervisorPhone(e.target.value)} placeholder="Phone (optional)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             <button disabled={orgBusy} className="bg-purple-700 hover:bg-purple-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
               {orgBusy ? 'Saving...' : 'Create supervisor'}
@@ -415,6 +452,23 @@ export const PlatformAdminPortal: React.FC<PlatformAdminPortalProps> = ({
                 <li key={person.id}>{person.fullName} — {person.email}</li>
               ))}
             </ul>
+          </form>
+
+          <form onSubmit={saveInterpreter} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-3 lg:col-span-2">
+            <h3 className="text-sm font-bold text-gray-900">Add an interpreter</h3>
+            <p className="text-xs text-gray-500">The interpreter profile, sign-in, and temporary password are written to the database. They choose their own password the first time they sign in.</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <input value={intName} onChange={(e) => setIntName(e.target.value)} required placeholder="Full name" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intEmail} onChange={(e) => setIntEmail(e.target.value)} required type="email" placeholder="Email" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intPassword} onChange={(e) => setIntPassword(e.target.value)} required type="password" minLength={6} placeholder="Temporary password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intPhone} onChange={(e) => setIntPhone(e.target.value)} placeholder="Phone" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intExtension} onChange={(e) => setIntExtension(e.target.value)} placeholder="Extension" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intLanguages} onChange={(e) => setIntLanguages(e.target.value)} required placeholder="Languages: amh, orm" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <input value={intCategories} onChange={(e) => setIntCategories(e.target.value)} required placeholder="Services: healthcare" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              <button disabled={orgBusy} className="bg-purple-700 hover:bg-purple-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
+                {orgBusy ? 'Saving...' : 'Save interpreter'}
+              </button>
+            </div>
           </form>
 
           {(orgMessage || orgError) && (

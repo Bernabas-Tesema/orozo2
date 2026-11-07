@@ -65,6 +65,29 @@ export const api = {
       method: 'POST',
     });
   },
+  async setupPassword(email: string, currentPassword: string, nextPassword: string): Promise<{
+    success: boolean;
+    token: string;
+    user: User;
+    interpreterProfile: InterpreterProfile | null;
+    message: string;
+  }> {
+    return request('/auth/setup-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, currentPassword, nextPassword }),
+    });
+  },
+  async changePassword(currentPassword: string, nextPassword: string): Promise<{
+    success: boolean;
+    user: User;
+    interpreterProfile: InterpreterProfile | null;
+    message: string;
+  }> {
+    return request('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, nextPassword }),
+    });
+  },
   async switchRole(userId: string): Promise<{ success: boolean; user: User; interpreterProfile: InterpreterProfile | null; message: string }> {
     return request('/auth/switch-role', {
       method: 'POST',
@@ -360,6 +383,7 @@ export const api = {
     deskEmail: string;
     deskPassword: string;
     phone?: string;
+    workplace?: string;
   }): Promise<{
     organizationName: string;
     message: string;
@@ -435,11 +459,17 @@ export const api = {
     });
   },
 
-  // ORZO Customer Support & Audio Language Identifier (Powered by Hasab AI)
-  async askOrzoSupport(message: string, chatHistory: any[] = []): Promise<{ response: string }> {
+  // ORZO Support chat, spoken questions, and language identification
+  async askOrzoSupport(message: string, chatHistory: any[] = [], locale = 'en'): Promise<{ response: string }> {
     return request('/support/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, chatHistory }),
+      body: JSON.stringify({ message, chatHistory, locale }),
+    });
+  },
+  async askSpokenQuestion(audioBase64: string, chatHistory: any[] = [], locale = 'en'): Promise<{ transcript: string; response: string }> {
+    return request('/support/voice-question', {
+      method: 'POST',
+      body: JSON.stringify({ audioBase64, chatHistory, locale }),
     });
   },
   async identifyAudioLanguage(params: {
@@ -458,6 +488,7 @@ export const api = {
       linguisticCharacteristics: string;
       highStakesWarning: boolean;
       recommendedAction: string;
+      engine?: string;
     };
   }> {
     return request('/support/identify-audio', {

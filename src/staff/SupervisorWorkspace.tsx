@@ -93,6 +93,7 @@ export const SupervisorWorkspace: React.FC<SupervisorWorkspaceProps> = ({
   const [interpreterFormError, setInterpreterFormError] = useState<string | null>(null);
   const [savingInterpreter, setSavingInterpreter] = useState(false);
   const [orgName, setOrgName] = useState('');
+  const [orgWorkplace, setOrgWorkplace] = useState('healthcare');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -172,9 +173,11 @@ export const SupervisorWorkspace: React.FC<SupervisorWorkspaceProps> = ({
         deskName: deskName || `${orgName} triage desk`,
         deskEmail,
         deskPassword,
+        workplace: orgWorkplace,
       });
       setOrgMessage(created.message);
       setOrgName('');
+      setOrgWorkplace('healthcare');
       setAdminName('');
       setAdminEmail('');
       setAdminPassword('');
@@ -333,6 +336,13 @@ export const SupervisorWorkspace: React.FC<SupervisorWorkspaceProps> = ({
         <p className="text-xs text-gray-500">Create the organization admin and the triage desk for a hospital, court, or partner site.</p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <input required value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Organization name" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          <select value={orgWorkplace} onChange={(e) => setOrgWorkplace(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="healthcare">Healthcare</option>
+            <option value="legal_court">Court</option>
+            <option value="immigration">Immigration</option>
+            <option value="ngo_humanitarian">NGO</option>
+            <option value="public_services">Public services</option>
+          </select>
           <input required value={adminName} onChange={(e) => setAdminName(e.target.value)} placeholder="Admin full name" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input required type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} placeholder="Admin email" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input required minLength={6} type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="Admin password" className="border border-gray-200 rounded-lg px-3 py-2 text-sm" />
@@ -352,7 +362,7 @@ export const SupervisorWorkspace: React.FC<SupervisorWorkspaceProps> = ({
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Interpreter registry</h2>
-            <p className="text-xs text-gray-500 mt-1">Supervisors create accounts and complete the contact, language, and service details used by dispatch and requesters.</p>
+            <p className="text-xs text-gray-500 mt-1">The account is saved in the database. The interpreter replaces this temporary password the first time they sign in.</p>
           </div>
           <UserCheck className="w-5 h-5 text-blue-600 shrink-0" />
         </div>

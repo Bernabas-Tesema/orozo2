@@ -1,7 +1,7 @@
 import express from 'express';
 import type { Request } from 'express';
 import apiRouter from './routes';
-import { schedulePortalPersist } from './postgresStore';
+import { flushPortalPersist } from './postgresStore';
 
 function splitUrl(raw: string) {
   const queryIndex = raw.indexOf('?');
@@ -109,17 +109,42 @@ function normalizeApiUrl(req: Request) {
 
 export function createApiApp() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
   app.use((req, _res, next) => {
     normalizeApiUrl(req);
     next();
   });
   app.use((req, res, next) => {
-    res.on('finish', () => {
-      if (req.method !== 'GET' && req.method !== 'HEAD' && (req.originalUrl || '').includes('/api/v1')) {
-        schedulePortalPersist();
-      }
-    });
+    const url = req.originalUrl || req.url || '';
+    const writesData = req.method !== 'GET' && req.method !== 'HEAD' && url.includes('/api/v1') && !url.includes('/support/');
+    if (!writesData) {
+      next();
+      return;
+    }
+    const originalJson = res.json.bind(res);
+    let flushing = false;
+    res.json = ((body: unknown) => {
+      if (flushing) return originalJson(body);
+      flushing = true;
+      const status = res.statusCode || 200;
+      flushPortalPersist()
+        .then(() => {
+          res.statusCode = status;
+          originalJson(body);
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'The database rejected the save.';
+          console.error('Durable save failed:', message);
+          if (status >= 400) {
+            res.statusCode = status;
+            originalJson(body);
+            return;
+          }
+          res.statusCode = 503;
+          originalJson({ error: `This change was not saved to the database. ${message}` });
+        });
+      return res;
+    }) as typeof res.json;
     next();
   });
   app.use('/api/v1', apiRouter);

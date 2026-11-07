@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   User,
   InterpretationRequest,
@@ -15,6 +15,7 @@ import {
   Check
 } from 'lucide-react';
 import { MedicalBackgroundPattern } from './MedicalBackgroundPattern';
+import { workplaceContext, workplaceImage, workplaceLanguageLabel, workplaceOf } from '../shared/workplace';
 
 interface TriageTerminalProps {
   currentUser: User;
@@ -46,36 +47,50 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
   onJoinSession,
   initialSourceLanguage,
 }) => {
+  const workplace = workplaceOf(currentUser);
   const [sourceLanguage, setSourceLanguage] = useState(initialSourceLanguage || 'orm');
   const [targetLanguage, setTargetLanguage] = useState('amh');
   const [context, setContext] = useState('');
   const [callMode, setCallMode] = useState<'audio' | 'video'>('audio');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [calling, setCalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ringRef = useRef<{ stop: () => void } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const routingContext = context.trim() || 'Patient in ER Bay 2 with acute symptoms';
+    const routingContext = context.trim() || workplaceContext(workplace);
 
     setIsSubmitting(true);
+    setCalling(true);
+    startOutgoingRing(ringRef);
     try {
       const createdSessionId = await onCreateRequest({
         sourceLanguage: sourceLanguage === 'unknown' ? undefined : sourceLanguage,
         targetLanguage,
         isUnknownLanguage: sourceLanguage === 'unknown',
         unknownLanguageNotes: sourceLanguage === 'unknown' ? 'Unknown dialect reported at desk' : undefined,
-        serviceCategory: 'healthcare',
+        serviceCategory: workplace,
         urgency: 'emergency',
         modality: callMode,
         scheduleType: 'immediate',
         minRoutingContext: routingContext,
       });
 
-      if (createdSessionId && createdSessionId !== 'ringing') onJoinSession(createdSessionId);
-      else if (createdSessionId !== 'ringing') setError('The request was saved. An interpreter will be assigned from the dispatch queue.');
+      if (createdSessionId && createdSessionId !== 'ringing') {
+        stopOutgoingRing(ringRef);
+        setCalling(false);
+        onJoinSession(createdSessionId);
+      } else if (createdSessionId !== 'ringing') {
+        stopOutgoingRing(ringRef);
+        setCalling(false);
+        setError('The request was saved. An interpreter will be assigned from the dispatch queue.');
+      }
     } catch (err: any) {
+      stopOutgoingRing(ringRef);
+      setCalling(false);
       setError(err?.message || 'The request could not be saved.');
     } finally {
       setIsSubmitting(false);
@@ -86,22 +101,39 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
   const ringingRequest = requests.find(
     (item) => item.requesterId === currentUser.id && item.status === 'assigned',
   );
+  const showCalling = calling || Boolean(ringingRequest);
+  const languageName = (code?: string) => languages.find((item) => item.code === code)?.name || (code ? code.toUpperCase() : 'Unknown language');
+
+  useEffect(() => {
+    if (!calling || isSubmitting) return;
+    const stillWaiting = requests.some(
+      (item) => item.requesterId === currentUser.id && ['submitted', 'validating', 'matching', 'assigned'].includes(item.status),
+    );
+    if (!stillWaiting) setCalling(false);
+  }, [calling, currentUser.id, isSubmitting, requests]);
+
+  useEffect(() => {
+    if (!showCalling) {
+      stopOutgoingRing(ringRef);
+      return;
+    }
+    startOutgoingRing(ringRef);
+    return () => stopOutgoingRing(ringRef);
+  }, [showCalling]);
 
   return (
     <div className="relative min-h-[calc(100vh-140px)] w-full flex items-center justify-center p-4 sm:p-8 overflow-hidden rounded-3xl">
       {/* Background Image of the Triage Station spanning the whole area */}
       <img
-        src="/src/assets/images/triage_clinical_station_hero_1793945653740.jpg"
-        alt="Clinical Triage Station"
-        className="absolute inset-0 w-full h-full object-cover"
+        src={workplaceImage(workplace)}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
         referrerPolicy="no-referrer"
       />
 
-      {/* Atmospheric Frosted Dark Glass Scrim */}
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/75 via-slate-900/65 to-slate-950/85 backdrop-blur-[3px]" />
+      <div className={`absolute inset-0 ${workplace === 'healthcare' ? 'bg-gradient-to-b from-slate-950/75 via-slate-900/65 to-slate-950/85' : 'bg-gradient-to-b from-slate-950/20 via-slate-900/15 to-slate-950/45'}`} />
 
-      {/* Subtle, Abstract Medical-Themed Animated SVG Pattern */}
-      <MedicalBackgroundPattern />
+      {workplace === 'healthcare' && <MedicalBackgroundPattern />}
 
       {/* Transparent / Glassmorphic Triage Card */}
       <div className="relative z-10 w-full max-w-lg bg-slate-950/50 backdrop-blur-2xl border border-white/20 rounded-3xl p-7 sm:p-10 shadow-2xl text-white space-y-6">
@@ -121,20 +153,35 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
           </div>
         )}
 
-        {ringingRequest ? (
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-5 space-y-2">
-            <p className="text-xs font-bold uppercase tracking-wider text-amber-200">Calling an interpreter</p>
-            <p className="text-lg font-black">{ringingRequest.reference}</p>
-            <p className="text-sm text-white/70">
-              The request is on the interpreter's screen with a countdown. If they do not answer in time, ORZO Support will open.
-            </p>
+        {showCalling ? (
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-white/25 bg-white/10 px-6 py-8 text-center shadow-2xl backdrop-blur-xl">
+              <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-emerald-300/30" />
+                <span className="absolute inset-2 rounded-full border border-white/30 bg-white/10" />
+                <PhoneCall className="relative h-10 w-10 text-white" />
+              </div>
+              <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-200">Ringing</p>
+              <h2 className="mt-2 text-2xl font-black">Calling an interpreter</h2>
+              <p className="mt-2 text-sm leading-relaxed text-white/70">
+                The phone is ringing on their desk. If they do not answer in time, ORZO Support will open.
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur-xl">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-white/50">This call</p>
+              <p className="mt-1 font-mono text-sm font-bold">{ringingRequest?.reference || 'Connecting'}</p>
+              <p className="mt-2 text-sm text-white/80">
+                {languageName(ringingRequest?.sourceLanguage || sourceLanguage)} to {languageName(ringingRequest?.targetLanguage || targetLanguage)}
+              </p>
+              <p className="mt-1 text-xs text-white/60">{callMode === 'video' ? 'Video call' : 'Audio call'} · {currentUser.organizationName}</p>
+            </div>
           </div>
         ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Patient Language Dropdown */}
           <div>
             <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2">
-              Patient Language
+              {workplaceLanguageLabel(workplace)}
             </label>
             <div className="relative">
               <select
@@ -184,7 +231,7 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
               type="text"
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder="e.g. Patient in ER Bay 2 with acute symptoms"
+              placeholder={workplaceContext(workplace)}
               className="w-full h-12 px-4 text-sm border border-white/20 rounded-xl bg-white/10 text-white placeholder:text-white/40 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition"
             />
           </div>
@@ -251,3 +298,48 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
     </div>
   );
 };
+
+function stopOutgoingRing(ringRef: React.MutableRefObject<{ stop: () => void } | null>) {
+  ringRef.current?.stop();
+  ringRef.current = null;
+}
+
+function startOutgoingRing(ringRef: React.MutableRefObject<{ stop: () => void } | null>) {
+  if (ringRef.current) return;
+  const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return;
+  const context = new AudioContextClass();
+  let stopped = false;
+  const burst = (when: number) => {
+    [480, 620].forEach((frequency) => {
+      const tone = context.createOscillator();
+      const gain = context.createGain();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(frequency, when);
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(0.07, when + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.42);
+      tone.connect(gain);
+      gain.connect(context.destination);
+      tone.start(when);
+      tone.stop(when + 0.44);
+    });
+  };
+  const ring = () => {
+    if (stopped || context.state === 'closed') return;
+    const start = context.currentTime;
+    burst(start);
+    burst(start + 0.62);
+  };
+  context.resume().then(ring).catch(() => undefined);
+  const pulse = window.setInterval(() => {
+    context.resume().then(ring).catch(() => undefined);
+  }, 2800);
+  ringRef.current = {
+    stop: () => {
+      stopped = true;
+      window.clearInterval(pulse);
+      context.close().catch(() => undefined);
+    },
+  };
+}

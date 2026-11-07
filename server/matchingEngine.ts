@@ -301,13 +301,15 @@ export function expireMissedAssignments(): number {
 
 export function handoffUnansweredAssignment(assignment: Assignment) {
   if (assignment.outcome !== 'pending') return;
+  const req = db.requests.find((item) => item.reference === assignment.requestReference);
+  const session = db.sessions.find((item) => item.requestReference === assignment.requestReference);
+  if (req && ['in_session', 'completed', 'cancelled'].includes(req.status)) return;
+  if (session && !['awaiting_acceptance', 'searching', 'created'].includes(session.status)) return;
   assignment.outcome = 'expired';
   assignment.response = 'timeout';
   assignment.respondedAt = new Date().toISOString();
   assignment.rejectionReason = 'Interpreter did not answer';
 
-  const req = db.requests.find((item) => item.reference === assignment.requestReference);
-  const session = db.sessions.find((item) => item.requestReference === assignment.requestReference);
   if (session && session.status === 'awaiting_acceptance') {
     session.status = 'no_interpreter_available';
   }

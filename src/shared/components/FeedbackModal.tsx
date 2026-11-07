@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Star } from 'lucide-react';
 import { MedicalBackgroundPattern } from '../../client/MedicalBackgroundPattern';
+import { ServiceCategory } from '../types';
+import { workplaceImage } from '../workplace';
 
 interface FeedbackModalProps {
   sessionId: string;
@@ -8,6 +10,7 @@ interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: { sessionId: string; rating: number; comment?: string }) => Promise<void>;
+  workplace?: ServiceCategory;
 }
 
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({
@@ -16,6 +19,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  workplace = 'healthcare',
 }) => {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
@@ -40,13 +44,13 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <img
-        src="/src/assets/images/triage_clinical_station_hero_1793945653740.jpg"
+        src={workplaceImage(workplace)}
         alt=""
         className="absolute inset-0 h-full w-full object-cover"
         referrerPolicy="no-referrer"
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/75 via-slate-900/70 to-slate-950/85 backdrop-blur-[3px]" />
-      <MedicalBackgroundPattern />
+      <div className={`absolute inset-0 ${workplace === 'healthcare' ? 'bg-gradient-to-b from-slate-950/75 via-slate-900/70 to-slate-950/85' : 'bg-gradient-to-b from-slate-950/20 via-slate-900/15 to-slate-950/45'}`} />
+      {workplace === 'healthcare' && <MedicalBackgroundPattern />}
       <form onSubmit={handleSubmit} className="relative z-10 w-full max-w-lg rounded-3xl border border-white/20 bg-slate-950/55 p-6 text-white shadow-2xl backdrop-blur-2xl">
         <p className="text-[11px] font-bold uppercase tracking-wider text-white/60">Call finished</p>
         <h2 className="mt-1 text-2xl font-black">Rate {interpreterName || 'the interpreter'}</h2>

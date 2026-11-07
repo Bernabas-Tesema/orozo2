@@ -4,17 +4,28 @@ import { CompletionReportModal } from '../shared/components/CompletionReportModa
 import { FeedbackModal } from '../shared/components/FeedbackModal';
 import { Header } from '../shared/components/Header';
 import { LiveSessionRoom } from '../shared/components/LiveSessionRoom';
+import { ChangePasswordPage } from '../shared/components/ChangePasswordPage';
 import { LoginPage } from '../shared/components/LoginPage';
 import { NotificationDrawer } from '../shared/components/NotificationDrawer';
 import { OrzoSupportModal } from '../shared/components/OrzoSupportModal';
 import { CommunicationMode, ServiceCategory } from '../shared/types';
 import { isClient, isStaff } from '../shared/roles';
 import { StaffWorkspace } from '../staff/StaffWorkspace';
+import { useState } from 'react';
 import { usePortal } from '../shared/usePortal';
+import { InvitePasswordPage } from '../shared/components/InvitePasswordPage';
+import { workplaceOf } from '../shared/workplace';
+
+function inviteEmailFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('change-password') !== '1') return null;
+  return params.get('email') || '';
+}
 
 export default function App() {
   const portal = usePortal();
   const { currentUser, settings, loading, error } = portal;
+  const [inviteEmail, setInviteEmail] = useState<string | null>(inviteEmailFromLocation);
 
   const activeSessionForUser = (() => {
     if (!currentUser || currentUser.role === 'platform_admin' || currentUser.role === 'supervisor') return undefined;
@@ -86,8 +97,32 @@ export default function App() {
     );
   }
 
+  if (!currentUser && inviteEmail !== null) {
+    return (
+      <InvitePasswordPage
+        initialEmail={inviteEmail}
+        onComplete={portal.acceptPasswordSetup}
+        onBack={() => {
+          window.history.replaceState({}, '', window.location.pathname);
+          setInviteEmail(null);
+        }}
+      />
+    );
+  }
+
   if (!currentUser) {
     return <LoginPage onLogin={portal.handleLogin} />;
+  }
+
+  if (currentUser.mustChangePassword) {
+    return (
+      <ChangePasswordPage
+        user={currentUser}
+        required
+        onComplete={portal.completePasswordChange}
+        onCancel={portal.handleLogout}
+      />
+    );
   }
 
   return (
@@ -175,6 +210,7 @@ export default function App() {
           isOpen={!!portal.feedbackModalSessionId}
           onClose={() => portal.setFeedbackModalSessionId(null)}
           onSubmit={portal.handleSubmitFeedback}
+          workplace={currentUser ? workplaceOf(currentUser) : 'healthcare'}
         />
       )}
 

@@ -11,6 +11,7 @@ import {
 import { OrgReport } from './OrgReport';
 import { TriageTerminal } from './TriageTerminal';
 import { HistoryRange, inHistoryRange } from '../shared/historyRange';
+import { workplaceOf } from '../shared/workplace';
 import { HistoryRangeControl } from '../shared/components/HistoryRangeControl';
 import {
   PlusCircle,
@@ -61,7 +62,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   // Form states
   const [sourceLanguage, setSourceLanguage] = useState('orm');
   const [targetLanguage, setTargetLanguage] = useState('amh');
-  const [serviceCategory, setServiceCategory] = useState<ServiceCategory>('healthcare');
+  const [serviceCategory, setServiceCategory] = useState<ServiceCategory>(workplaceOf(currentUser));
   const [urgency, setUrgency] = useState<UrgencyLevel>('standard');
   const [modality, setModality] = useState<CommunicationMode>('audio');
   const [scheduleType, setScheduleType] = useState<ScheduleType>('immediate');

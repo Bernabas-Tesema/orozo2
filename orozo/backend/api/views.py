@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 from django.contrib.auth.hashers import check_password
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponseRedirect, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
@@ -12,6 +12,10 @@ from .models import Account, InterpretationRequest, InterpretationSession, Langu
 
 def home(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"service": "ORZO", "status": "ok"})
+
+
+def admin_login_redirect(request: HttpRequest) -> HttpResponseRedirect:
+    return HttpResponseRedirect("/admin/login/")
 
 
 def _request_json(request: InterpretationRequest) -> dict:
