@@ -1,12 +1,15 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createApiApp } from './server/app';
-import { connectPortalDatabase } from './server/postgresStore';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const frontendRoot = path.resolve(__dirname, '../frontend');
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+const { createApiApp } = await import('./server/app');
+const { connectPortalDatabase } = await import('./server/postgresStore');
 
 async function startServer() {
   await connectPortalDatabase();
@@ -37,12 +40,14 @@ async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
+      root: frontendRoot,
+      configFile: path.resolve(frontendRoot, 'vite.config.ts'),
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    const distPath = path.resolve(frontendRoot, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));

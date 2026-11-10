@@ -260,6 +260,7 @@ export function usePortal() {
       return session.id;
     }
     if (res.request.status === 'assigned') return 'ringing';
+    if (res.request.status === 'matching') return 'waiting';
     return undefined;
   };
 

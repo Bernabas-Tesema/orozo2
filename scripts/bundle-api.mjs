@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild';
 
 await esbuild.build({
-  entryPoints: ['server/vercel.ts'],
+  entryPoints: ['backend/server/vercel.ts'],
   bundle: true,
   platform: 'node',
   format: 'cjs',

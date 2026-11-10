@@ -106,11 +106,131 @@ export function findEligibleInterpreters(request: InterpretationRequest): {
   }
 
   results.sort((a, b) => {
+    const byRating = b.interpreter.rating - a.interpreter.rating;
+    if (byRating !== 0) return byRating;
     const byScore = b.score - a.score;
     if (byScore !== 0) return byScore;
-    return b.interpreter.rating - a.interpreter.rating;
+    return a.interpreter.fullName.localeCompare(b.interpreter.fullName);
   });
   return results;
+}
+
+function sameRating(left: number, right: number) {
+  return Math.abs(left - right) < 0.05;
+}
+
+function requesterWindowOpen(request: InterpretationRequest) {
+  const ringSeconds = db.settings.assignmentTimeoutSeconds || 45;
+  const attempts = Math.max(db.settings.maxAutoRetries || 3, 1);
+  const waitMs = ringSeconds * attempts * 1000;
+  return Date.now() < new Date(request.createdAt).getTime() + waitMs;
+}
+
+function alreadyTried(requestReference: string, interpreterId: string) {
+  return db.assignments.some(
+    (item) => item.requestReference === requestReference
+      && item.interpreterId === interpreterId
+      && item.outcome !== 'pending',
+  );
+}
+
+function servesDomain(interpreter: InterpreterProfile, request: InterpretationRequest) {
+  if (interpreter.verificationState !== 'verified') return false;
+  if (!interpreter.serviceCategories.includes(request.serviceCategory)) return false;
+  const codes = interpreter.supportedLanguages.map((item) => item.languageCode.toLowerCase());
+  return codes.includes(request.sourceLanguage.toLowerCase()) || codes.includes(request.targetLanguage.toLowerCase());
+}
+
+function domainInterpreters(request: InterpretationRequest) {
+  return db.interpreters.filter((interpreter) => servesDomain(interpreter, request));
+}
+
+/** Highest free rating rings. Interpreters who share that rating all ring. A higher rating rings alone. */
+function interpretersToRing(request: InterpretationRequest) {
+  const free = domainInterpreters(request).filter(
+    (interpreter) => interpreter.availability === 'available'
+      && !interpreter.activeSessionId
+      && !alreadyTried(request.reference, interpreter.id),
+  );
+  if (!free.length) return [];
+  const topRating = Math.max(...free.map((interpreter) => interpreter.rating));
+  return free
+    .filter((interpreter) => sameRating(interpreter.rating, topRating))
+    .sort((a, b) => b.rating - a.rating || a.fullName.localeCompare(b.fullName));
+}
+
+function ringInterpreter(req: InterpretationRequest, candidate: InterpreterProfile, session: InterpretationSession | undefined, reason: string) {
+  const timeoutSec = db.settings.assignmentTimeoutSeconds || 45;
+  const assignment: Assignment = {
+    id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    requestReference: req.reference,
+    interpreterId: candidate.id,
+    interpreterName: candidate.fullName,
+    assignedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + timeoutSec * 1000).toISOString(),
+    outcome: 'pending',
+  };
+  db.assignments.push(assignment);
+  if (session) {
+    session.status = 'awaiting_acceptance';
+    if (!session.authorizedParticipantIds.includes(candidate.userId)) {
+      session.authorizedParticipantIds.push(candidate.userId);
+    }
+    if (!session.interpreterId) {
+      session.interpreterId = candidate.id;
+      session.interpreterName = candidate.fullName;
+    }
+  }
+  db.notifyUser(candidate.userId, {
+    title: `New Interpretation Assignment (${req.urgency.toUpperCase()})`,
+    message: `${reason} Request ${req.reference}: ${req.sourceLanguage.toUpperCase()} to ${req.targetLanguage.toUpperCase()} for ${req.organizationName}. Please accept within ${timeoutSec} seconds.`,
+    channel: 'in_app',
+    status: 'delivered',
+    read: false,
+    actionUrl: '/interpreter',
+  });
+  db.logAudit({
+    actorId: 'system',
+    actorName: 'Dispatch Engine',
+    actorRole: 'platform_admin',
+    action: 'ASSIGNMENT_DISPATCHED',
+    resourceType: 'assignment',
+    resourceId: assignment.id,
+    result: 'success',
+    securityMetadata: { note: reason },
+  });
+  return assignment;
+}
+
+function holdForFreeInterpreter(req: InterpretationRequest) {
+  req.status = 'matching';
+  req.assignedInterpreterId = undefined;
+  req.assignedInterpreterName = undefined;
+  req.escalationReason = 'Every interpreter in this domain is on a call. The request stays open and rings the next interpreter who becomes free.';
+  req.updatedAt = new Date().toISOString();
+  const session = db.sessions.find((item) => item.requestReference === req.reference);
+  if (session && session.status === 'awaiting_acceptance') session.status = 'searching';
+}
+
+function escalateWhenWaitEnds(req: InterpretationRequest) {
+  req.status = 'unresolved';
+  req.assignedInterpreterId = undefined;
+  req.assignedInterpreterName = undefined;
+  req.activeSessionId = undefined;
+  req.escalationReason = 'ORZO Support: no interpreter became free before the requester wait ended.';
+  req.updatedAt = new Date().toISOString();
+  const session = db.sessions.find((item) => item.requestReference === req.reference);
+  if (session && ['awaiting_acceptance', 'searching', 'created'].includes(session.status)) {
+    session.status = 'no_interpreter_available';
+  }
+  db.notifyUser(req.requesterId, {
+    title: 'ORZO Support',
+    message: `No free interpreter answered ${req.reference} before the wait ended. ORZO Support is opening.`,
+    channel: 'in_app',
+    status: 'delivered',
+    read: false,
+    actionUrl: '/support',
+  });
 }
 
 /**
@@ -162,19 +282,34 @@ export function dispatchRequest(requestReference: string): {
     };
   }
 
-  // Find eligible interpreters
-  const eligible = findEligibleInterpreters(req);
+  if (db.assignments.some((item) => item.requestReference === req.reference && item.outcome === 'pending')) {
+    return { success: true, status: 'assigned', message: 'The request is already ringing.' };
+  }
 
-  if (eligible.length === 0) {
-    // No match found -> update status to pending_coordinator per FR-033 & FR-036
+  const domain = domainInterpreters(req);
+  const ringing = interpretersToRing(req);
+
+  if (ringing.length === 0) {
+    const busy = domain.some((interpreter) => interpreter.availability === 'busy' || interpreter.activeSessionId);
+    if (busy && requesterWindowOpen(req)) {
+      holdForFreeInterpreter(req);
+      return {
+        success: true,
+        status: 'matching',
+        message: 'Every interpreter in this domain is busy. The request waits and rings the next one who becomes free.',
+      };
+    }
+
     req.status = 'pending_coordinator';
     req.escalatedToSupervisorAt = new Date().toISOString();
-    req.escalationReason = 'No matching verified interpreter currently available. Coordinator manual intervention required.';
+    req.escalationReason = domain.length
+      ? 'The requester wait ended before an interpreter in this domain became free.'
+      : 'No verified interpreter in this domain matches the requested languages.';
     req.updatedAt = new Date().toISOString();
 
     db.notifyRole('supervisor', {
       title: 'Interpreter Unavailability Alert',
-      message: `No available interpreter for ${req.reference} (${req.sourceLanguage.toUpperCase()} -> ${req.targetLanguage.toUpperCase()}).`,
+      message: `No free interpreter for ${req.reference} (${req.sourceLanguage.toUpperCase()} -> ${req.targetLanguage.toUpperCase()}).`,
       channel: 'in_app',
       status: 'delivered',
       read: false,
@@ -189,37 +324,25 @@ export function dispatchRequest(requestReference: string): {
       resourceType: 'interpretation_request',
       resourceId: req.reference,
       result: 'failure',
-      securityMetadata: { note: 'No candidate interpreter met active criteria' },
+      securityMetadata: { note: req.escalationReason || 'No candidate interpreter met active criteria' },
     });
 
     return {
       success: false,
       status: 'pending_coordinator',
-      message: 'No available interpreter matched. Routed to supervisor queue for manual reassignment.',
+      message: 'No free interpreter matched. Routed to the supervisor queue.',
     };
   }
 
-  // Pick top candidate
-  const candidate = eligible[0].interpreter;
-  const timeoutSec = db.settings.assignmentTimeoutSeconds || 45;
+  const topRating = ringing[0].rating;
+  const recommended = ringing.length === 1;
+  const reason = recommended
+    ? `Recommended interpreter ${ringing[0].fullName} has the highest rating (${topRating.toFixed(1)}).`
+    : `${ringing.length} interpreters share the highest rating (${topRating.toFixed(1)}), so the call rings for each of them.`;
 
-  // Create Assignment record
-  const assignment: Assignment = {
-    id: `asg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-    requestReference: req.reference,
-    interpreterId: candidate.id,
-    interpreterName: candidate.fullName,
-    assignedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + timeoutSec * 1000).toISOString(),
-    outcome: 'pending',
-  };
-
-  db.assignments.push(assignment);
-
-  // Update request state
   req.status = 'assigned';
-  req.assignedInterpreterId = candidate.id;
-  req.assignedInterpreterName = candidate.fullName;
+  req.assignedInterpreterId = recommended ? ringing[0].id : undefined;
+  req.assignedInterpreterName = recommended ? ringing[0].fullName : ringing.map((item) => item.fullName).join(', ');
   req.updatedAt = new Date().toISOString();
 
   // Create or update session in 'awaiting_acceptance' or 'ready_to_join'
@@ -234,8 +357,8 @@ export function dispatchRequest(requestReference: string): {
       lowBandwidthMode: db.settings.telecomLowBandwidthPreset,
       recordingEnabled: false,
       durationSeconds: 0,
-      interpreterId: candidate.id,
-      interpreterName: candidate.fullName,
+      interpreterId: recommended ? ringing[0].id : undefined,
+      interpreterName: recommended ? ringing[0].fullName : req.assignedInterpreterName,
       clientId: req.requesterId,
       clientName: req.requesterName,
       organizationName: req.organizationName,
@@ -243,47 +366,25 @@ export function dispatchRequest(requestReference: string): {
       targetLanguage: req.targetLanguage,
       serviceCategory: req.serviceCategory,
       connectionHealth: 'optimal',
-      authorizedParticipantIds: [req.requesterId, candidate.userId],
+      authorizedParticipantIds: [req.requesterId, ...ringing.map((item) => item.userId)],
     };
     db.sessions.push(session);
   } else {
-    session.interpreterId = candidate.id;
-    session.interpreterName = candidate.fullName;
+    session.interpreterId = recommended ? ringing[0].id : undefined;
+    session.interpreterName = recommended ? ringing[0].fullName : req.assignedInterpreterName;
     session.status = 'awaiting_acceptance';
-    session.authorizedParticipantIds = [req.requesterId, candidate.userId];
+    session.authorizedParticipantIds = [req.requesterId, ...ringing.map((item) => item.userId)];
   }
 
   req.activeSessionId = session.id;
-
-  // Notify interpreter
-  db.notifyUser(candidate.userId, {
-    title: `New Interpretation Assignment (${req.urgency.toUpperCase()})`,
-    message: `Request ${req.reference} assigned to you: ${req.sourceLanguage.toUpperCase()} to ${req.targetLanguage.toUpperCase()} for ${req.organizationName}. Please accept within ${timeoutSec} seconds.`,
-    channel: 'in_app',
-    status: 'delivered',
-    read: false,
-    actionUrl: '/interpreter',
-  });
-
-  db.logAudit({
-    actorId: 'system',
-    actorName: 'Dispatch Engine',
-    actorRole: 'platform_admin',
-    action: 'ASSIGNMENT_DISPATCHED',
-    resourceType: 'assignment',
-    resourceId: assignment.id,
-    result: 'success',
-    securityMetadata: {
-      note: `Assigned to ${candidate.fullName}. Match reasons: ${eligible[0].matchReasons.join(', ')}`,
-    },
-  });
+  const assignment = ringing.map((candidate) => ringInterpreter(req, candidate, session, reason))[0];
 
   return {
     success: true,
     status: 'assigned',
     assignment,
     session,
-    message: `Assigned to interpreter ${candidate.fullName}.`,
+    message: reason,
   };
 }
 
@@ -296,7 +397,32 @@ export function expireMissedAssignments(): number {
     handoffUnansweredAssignment(assignment);
     expired += 1;
   }
+  for (const request of db.requests) {
+    if (request.status !== 'matching' || request.isUnknownLanguage) continue;
+    if (!requesterWindowOpen(request)) {
+      escalateWhenWaitEnds(request);
+      continue;
+    }
+    if (interpretersToRing(request).length) dispatchRequest(request.reference);
+  }
   return expired;
+}
+
+/** When an interpreter finishes a call, a waiting request rings on that newly free interpreter. */
+export function offerToNewlyFreeInterpreter(interpreterId: string) {
+  const interpreter = db.interpreters.find((item) => item.id === interpreterId);
+  if (!interpreter || interpreter.availability !== 'available' || interpreter.activeSessionId) return;
+  const waiting = db.requests
+    .filter((request) => request.status === 'matching' && !request.isUnknownLanguage && requesterWindowOpen(request))
+    .filter((request) => servesDomain(interpreter, request) && !alreadyTried(request.reference, interpreter.id))
+    .sort((a, b) => {
+      if (a.urgency === 'emergency' && b.urgency !== 'emergency') return -1;
+      if (b.urgency === 'emergency' && a.urgency !== 'emergency') return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  const request = waiting.find((item) => interpretersToRing(item).some((candidate) => candidate.id === interpreter.id));
+  if (!request) return;
+  dispatchRequest(request.reference);
 }
 
 export function handoffUnansweredAssignment(assignment: Assignment) {
@@ -310,16 +436,19 @@ export function handoffUnansweredAssignment(assignment: Assignment) {
   assignment.respondedAt = new Date().toISOString();
   assignment.rejectionReason = 'Interpreter did not answer';
 
-  if (session && session.status === 'awaiting_acceptance') {
-    session.status = 'no_interpreter_available';
-  }
+  const stillRinging = db.assignments.some(
+    (item) => item.requestReference === assignment.requestReference && item.id !== assignment.id && item.outcome === 'pending',
+  );
+  if (stillRinging) return;
   if (req) {
-    req.status = 'unresolved';
-    req.activeSessionId = undefined;
     req.assignedInterpreterId = undefined;
     req.assignedInterpreterName = undefined;
-    req.escalationReason = 'ORZO Support: the interpreter did not answer within the allotted time.';
+    req.status = 'matching';
     req.updatedAt = new Date().toISOString();
+    if (session && session.status === 'awaiting_acceptance') session.status = 'searching';
+    const next = dispatchRequest(req.reference);
+    if (next.status === 'assigned' || next.status === 'matching') return;
+    req.escalationReason = 'ORZO Support: the interpreter did not answer within the allotted time.';
     db.notifyUser(req.requesterId, {
       title: 'ORZO Support',
       message: `No interpreter answered ${req.reference}. ORZO Support is opening.`,
@@ -388,6 +517,16 @@ export function handleAssignmentResponse(
     if (interp) {
       interp.availability = 'busy';
       interp.activeSessionId = session?.id;
+    }
+    if (req) {
+      db.assignments.forEach((item) => {
+        if (item.requestReference === req.reference && item.id !== assignment.id && item.outcome === 'pending') {
+          item.outcome = 'reassigned';
+          item.response = 'rejected';
+          item.respondedAt = new Date().toISOString();
+          item.rejectionReason = 'Another interpreter answered first';
+        }
+      });
     }
 
     // Notify client

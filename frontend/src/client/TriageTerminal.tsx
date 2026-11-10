@@ -79,10 +79,12 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
         minRoutingContext: routingContext,
       });
 
-      if (createdSessionId && createdSessionId !== 'ringing') {
+      if (createdSessionId && createdSessionId !== 'ringing' && createdSessionId !== 'waiting') {
         stopOutgoingRing(ringRef);
         setCalling(false);
         onJoinSession(createdSessionId);
+      } else if (createdSessionId === 'waiting') {
+        stopOutgoingRing(ringRef);
       } else if (createdSessionId !== 'ringing') {
         stopOutgoingRing(ringRef);
         setCalling(false);
@@ -99,9 +101,10 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
 
   const activeLanguages = languages.filter((l) => l.isActive);
   const ringingRequest = requests.find(
-    (item) => item.requesterId === currentUser.id && item.status === 'assigned',
+    (item) => item.requesterId === currentUser.id && (item.status === 'assigned' || item.status === 'matching'),
   );
   const showCalling = calling || Boolean(ringingRequest);
+  const phoneRinging = ringingRequest?.status === 'assigned' || (calling && isSubmitting);
   const languageName = (code?: string) => languages.find((item) => item.code === code)?.name || (code ? code.toUpperCase() : 'Unknown language');
 
   useEffect(() => {
@@ -113,13 +116,13 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
   }, [calling, currentUser.id, isSubmitting, requests]);
 
   useEffect(() => {
-    if (!showCalling) {
+    if (!phoneRinging) {
       stopOutgoingRing(ringRef);
       return;
     }
     startOutgoingRing(ringRef);
     return () => stopOutgoingRing(ringRef);
-  }, [showCalling]);
+  }, [phoneRinging]);
 
   return (
     <div className="relative min-h-[calc(100vh-140px)] w-full flex items-center justify-center p-4 sm:p-8 overflow-hidden rounded-3xl">
@@ -161,10 +164,16 @@ export const TriageTerminal: React.FC<TriageTerminalProps> = ({
                 <span className="absolute inset-2 rounded-full border border-white/30 bg-white/10" />
                 <PhoneCall className="relative h-10 w-10 text-white" />
               </div>
-              <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-200">Ringing</p>
-              <h2 className="mt-2 text-2xl font-black">Calling an interpreter</h2>
+              <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-200">
+                {ringingRequest?.status === 'matching' ? 'Waiting' : 'Ringing'}
+              </p>
+              <h2 className="mt-2 text-2xl font-black">
+                {ringingRequest?.status === 'matching' ? 'Waiting for a free interpreter' : 'Calling an interpreter'}
+              </h2>
               <p className="mt-2 text-sm leading-relaxed text-white/70">
-                The phone is ringing on their desk. If they do not answer in time, ORZO Support will open.
+                {ringingRequest?.status === 'matching'
+                  ? 'Every interpreter in this domain is on a call. If one finishes before your wait ends, the request rings on that interpreter automatically.'
+                  : 'The phone is ringing for the recommended interpreter. A higher rating is called first. Equal ratings ring together.'}
               </p>
             </div>
             <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur-xl">

@@ -25,7 +25,7 @@ function escapeHtml(value: string) {
 function logoAttachment() {
   return {
     filename: 'orzo-logo.png',
-    path: path.resolve(process.cwd(), 'public', 'orzo-logo.png'),
+    path: path.resolve(process.cwd(), 'frontend', 'public', 'orzo-logo.png'),
     cid: 'orzo-logo',
   };
 }

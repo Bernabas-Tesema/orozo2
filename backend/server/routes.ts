@@ -10,7 +10,7 @@ import {
   CompletionReport,
   PlatformSettings
 } from './types';
-import { dispatchRequest, handleAssignmentResponse, findEligibleInterpreters, expireMissedAssignments, handoffUnansweredAssignment } from './matchingEngine';
+import { dispatchRequest, handleAssignmentResponse, findEligibleInterpreters, expireMissedAssignments, handoffUnansweredAssignment, offerToNewlyFreeInterpreter } from './matchingEngine';
 import { schedulePortalPersist } from './postgresStore';
 import { answerSpokenQuestion, askOrzoSupport, identifyAudioLanguage } from './orzoSupportService';
 import { mailConfigured, sendCredentialEmail, sendOrganizationCredentials } from './mail';
@@ -535,6 +535,7 @@ router.patch('/availability', (req: Request, res: Response) => {
   }
 
   profile.availability = availability;
+  if (availability === 'available') offerToNewlyFreeInterpreter(profile.id);
 
   db.logAudit({
     actorId: currentUser.id,
@@ -728,6 +729,7 @@ router.post('/requests/:reference/cancel', (req: Request, res: Response) => {
     if (interp && interp.activeSessionId === session?.id) {
       interp.availability = 'available';
       interp.activeSessionId = undefined;
+      offerToNewlyFreeInterpreter(interp.id);
     }
   }
 
@@ -1037,6 +1039,7 @@ router.post('/sessions/:id/end', (req: Request, res: Response) => {
       interp.availability = 'available';
       interp.activeSessionId = undefined;
       interp.totalSessionsCompleted += 1;
+      offerToNewlyFreeInterpreter(interp.id);
     }
   }
 
