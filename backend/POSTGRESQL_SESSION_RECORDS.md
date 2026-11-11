@@ -306,7 +306,7 @@ Returns the append-only audit trail for the session.
 To apply the migrations to your PostgreSQL database:
 
 ```bash
-cd orozo/backend
+cd backend
 
 # Ensure DATABASE_URL is set in .env:
 # DATABASE_URL=postgres://orzo_user:orzo_pass@localhost:5432/orzo_db

@@ -4,9 +4,9 @@ Three separate products. They share the same service categories, and they do not
 
 | Product | Folder | Who uses it |
 | --- | --- | --- |
-| Field client | `app` | Hospital, court, and desk staff on a phone. Flutter. |
+| Field client | `frontend/field-app` | Hospital, court, and desk staff on a phone. Flutter. |
 | Backend | `backend` | The API the Flutter app calls. Django. |
-| Web portal | repository root `src/` | Interpreters, supervisors, admins, and organization consoles. React. Kept as-is. |
+| Web portal | `frontend` | Interpreters, supervisors, admins, and organization consoles. React, with the portal server in the same folder. |
 
 ## Categories
 
@@ -25,7 +25,7 @@ Each folder has a `profile.json` and a `cover.jpg`. The Flutter intro animates t
 ## Run the Django API
 
 ```bash
-cd orozo/backend
+cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -38,7 +38,7 @@ python manage.py runserver 0.0.0.0:8000
 ## Run the Flutter client
 
 ```bash
-cd orozo/app
+cd frontend/field-app
 flutter pub get
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 ```
@@ -49,4 +49,4 @@ The first launch plays an intro: the ORZO mark, then one animated card for each 
 
 ## Web portal
 
-From the repository root, `npm run dev` still starts the staff console. The phone control in the header is only an on-screen preview. The field client is this Flutter app.
+From the repository root, `npm run dev` still starts the staff console. The phone control in the header is only an on-screen preview. The field client is `frontend/field-app`.

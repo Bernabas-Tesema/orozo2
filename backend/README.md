@@ -14,7 +14,7 @@ Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in `.env`. Do not
 
 1. **Install Dependencies**:
    ```bash
-   cd orozo/backend
+   cd backend
    pip install -r requirements.txt
    ```
 
@@ -43,7 +43,7 @@ Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in `.env`. Do not
 
 1. **Start the Container**:
    ```bash
-   cd orozo/backend
+   cd backend
    docker compose up --build
    ```
    *(Or from the repository root: `docker compose up --build`)*

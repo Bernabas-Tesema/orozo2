@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx backend/server.ts",
+    "dev": "tsx frontend/server.ts",
     "build": "vite build --config frontend/vite.config.ts",
-    "start": "tsx backend/server.ts",
+    "start": "tsx frontend/server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

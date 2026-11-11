@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 
 export function mailConfigured() {
@@ -25,7 +26,7 @@ function escapeHtml(value: string) {
 function logoAttachment() {
   return {
     filename: 'orzo-logo.png',
-    path: path.resolve(process.cwd(), 'frontend', 'public', 'orzo-logo.png'),
+    path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/orzo-logo.png'),
     cid: 'orzo-logo',
   };
 }

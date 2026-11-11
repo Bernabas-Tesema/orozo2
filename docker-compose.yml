@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: change-me
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./orozo/backend/schema_and_seed.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./backend/schema_and_seed.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d orzo_db"]
       interval: 5s
@@ -22,13 +22,13 @@ services:
 
   backend:
     build:
-      context: ./orozo/backend
+      context: ./backend
       dockerfile: Dockerfile
     container_name: orzo-django-backend
     ports:
       - "8000:8000"
     volumes:
-      - ./orozo/backend:/app
+      - ./backend:/app
     environment:
       - DEBUG=True
       - SECRET_KEY=django-insecure-orzo-dev-secret-key-change-in-production

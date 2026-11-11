@@ -1,6 +1,6 @@
 # ORZO field client
 
-Flutter app for desk and field staff. It is the client. The staff web portal stays in the repository root, and this app talks to the Django API in `orozo/backend`.
+Flutter app for desk and field staff. It is the client. The staff web portal is in `frontend`, and this app talks to the Django API in `backend`.
 
 ```bash
 flutter pub get
